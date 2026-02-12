@@ -1,0 +1,1344 @@
+@import "tailwindcss";
+@import "tw-animate-css";
+
+@custom-variant dark (&:is(.dark *));
+
+@theme inline {
+  --color-background: var(--background);
+  --color-foreground: var(--foreground);
+  /* Default to Arabic fonts */
+  --font-sans: var(--font-sans-arabic), system-ui, sans-serif;
+  --font-mono: var(--font-geist-mono), monospace;
+  --font-serif: var(--font-serif-arabic), serif;
+  /* English font families */
+  --font-sans-en: var(--font-geist-sans), system-ui, sans-serif;
+  --font-serif-en: var(--font-newsreader), Georgia, serif;
+  --color-sidebar-ring: var(--sidebar-ring);
+  --color-sidebar-border: var(--sidebar-border);
+  --color-sidebar-accent-foreground: var(--sidebar-accent-foreground);
+  --color-sidebar-accent: var(--sidebar-accent);
+  --color-sidebar-primary-foreground: var(--sidebar-primary-foreground);
+  --color-sidebar-primary: var(--sidebar-primary);
+  --color-sidebar-foreground: var(--sidebar-foreground);
+  --color-sidebar: var(--sidebar);
+  --color-chart-5: var(--chart-5);
+  --color-chart-4: var(--chart-4);
+  --color-chart-3: var(--chart-3);
+  --color-chart-2: var(--chart-2);
+  --color-chart-1: var(--chart-1);
+  --color-ring: var(--ring);
+  --color-input: var(--input);
+  --color-border: var(--border);
+  --color-destructive: var(--destructive);
+  --color-accent-foreground: var(--accent-foreground);
+  --color-accent: var(--accent);
+  --color-muted-foreground: var(--muted-foreground);
+  --color-muted: var(--muted);
+  --color-secondary-foreground: var(--secondary-foreground);
+  --color-secondary: var(--secondary);
+  --color-primary-foreground: var(--primary-foreground);
+  --color-primary: var(--primary);
+  --color-popover-foreground: var(--popover-foreground);
+  --color-popover: var(--popover);
+  --color-card-foreground: var(--card-foreground);
+  --color-card: var(--card);
+  --radius-sm: calc(var(--radius) - 4px);
+  --radius-md: calc(var(--radius) - 2px);
+  --radius-lg: var(--radius);
+  --radius-xl: calc(var(--radius) + 4px);
+  --radius-2xl: calc(var(--radius) + 8px);
+  --radius-3xl: calc(var(--radius) + 12px);
+  --radius-4xl: calc(var(--radius) + 16px);
+}
+
+/* Light mode - Purple primary, sophisticated palette, glassmorphism */
+/* Note: Avoid pure black (0) and pure white (1) - use soft alternatives */
+:root {
+  --radius: 0.625rem;
+  --background: oklch(0.985 0 0);
+  --foreground: oklch(0.15 0 0);
+  --card: oklch(0.995 0 0);
+  --card-foreground: oklch(0.15 0 0);
+  --popover: oklch(0.995 0 0);
+  --popover-foreground: oklch(0.15 0 0);
+  /* Purple primary */
+  --primary: oklch(0.55 0.22 280);
+  --primary-foreground: oklch(0.98 0 0);
+  /* Purple accent */
+  --accent: oklch(0.55 0.22 280);
+  --accent-foreground: oklch(0.98 0 0);
+  /* Monotone secondary */
+  --secondary: oklch(0.96 0 0);
+  --secondary-foreground: oklch(0.18 0 0);
+  --muted: oklch(0.96 0 0);
+  --muted-foreground: oklch(0.45 0 0);
+  --destructive: oklch(0.55 0.2 25);
+  /* Subtle borders */
+  --border: oklch(0.90 0 0);
+  --input: oklch(0.93 0 0);
+  --ring: oklch(0.55 0.22 280);
+  /* Chart colors - purple tones */
+  --chart-1: oklch(0.55 0.22 280);
+  --chart-2: oklch(0.65 0.18 280);
+  --chart-3: oklch(0.45 0.15 280);
+  --chart-4: oklch(0.75 0.12 280);
+  --chart-5: oklch(0.35 0.1 280);
+  --sidebar: oklch(0.98 0 0);
+  --sidebar-foreground: oklch(0.15 0 0);
+  --sidebar-primary: oklch(0.55 0.22 280);
+  --sidebar-primary-foreground: oklch(0.98 0 0);
+  --sidebar-accent: oklch(0.96 0 0);
+  --sidebar-accent-foreground: oklch(0.18 0 0);
+  --sidebar-border: oklch(0.94 0 0);
+  --sidebar-ring: oklch(0.55 0.22 280);
+  /* Glassmorphism tokens */
+  --glass-bg: oklch(1 0 0 / 0.7);
+  --glass-border: oklch(0.9 0 0 / 0.5);
+  --glass-shadow: 0 4px 24px oklch(0.5 0 0 / 0.1);
+}
+
+/* Dark mode - Purple primary, sophisticated palette, glassmorphism */
+/* Note: Using soft black (#121212 equivalent) instead of pure black for reduced eye strain */
+.dark {
+  --background: oklch(0.10 0 0);
+  --foreground: oklch(0.92 0 0);
+  --card: oklch(0.12 0 0);
+  --card-foreground: oklch(0.92 0 0);
+  --popover: oklch(0.16 0 0);
+  --popover-foreground: oklch(0.92 0 0);
+  /* Purple primary */
+  --primary: oklch(0.7 0.2 280);
+  --primary-foreground: oklch(0.13 0 0);
+  /* Purple accent */
+  --accent: oklch(0.7 0.2 280);
+  --accent-foreground: oklch(0.13 0 0);
+  /* Monotone secondary */
+  --secondary: oklch(0.2 0 0);
+  --secondary-foreground: oklch(0.92 0 0);
+  --muted: oklch(0.2 0 0);
+  --muted-foreground: oklch(0.6 0 0);
+  --destructive: oklch(0.65 0.2 25);
+  /* Subtle borders */
+  --border: oklch(1 0 0 / 8%);
+  --input: oklch(1 0 0 / 10%);
+  --ring: oklch(0.7 0.2 280);
+  /* Chart colors - purple tones */
+  --chart-1: oklch(0.7 0.2 280);
+  --chart-2: oklch(0.6 0.18 280);
+  --chart-3: oklch(0.8 0.15 280);
+  --chart-4: oklch(0.5 0.12 280);
+  --chart-5: oklch(0.75 0.1 280);
+  --sidebar: oklch(0.13 0 0);
+  --sidebar-foreground: oklch(0.92 0 0);
+  --sidebar-primary: oklch(0.7 0.2 280);
+  --sidebar-primary-foreground: oklch(0.13 0 0);
+  --sidebar-accent: oklch(0.2 0 0);
+  --sidebar-accent-foreground: oklch(0.92 0 0);
+  --sidebar-border: oklch(1 0 0 / 8%);
+  --sidebar-ring: oklch(0.7 0.2 280);
+  /* Glassmorphism tokens - dark mode */
+  --glass-bg: oklch(0.14 0 0 / 0.8);
+  --glass-border: oklch(1 0 0 / 0.15);
+  --glass-shadow: 0 4px 24px oklch(0 0 0 / 0.4);
+}
+
+@layer base {
+  * {
+    @apply border-border outline-ring/50;
+  }
+
+  /* Tell browsers this site supports both color schemes natively */
+  :root {
+    color-scheme: light dark;
+  }
+
+  /* Smooth scrolling for the entire page */
+  html {
+    scroll-behavior: smooth;
+  }
+
+  /* Respect user preference for reduced motion */
+  @media (prefers-reduced-motion: reduce) {
+    html {
+      scroll-behavior: auto;
+    }
+
+    *, *::before, *::after {
+      animation-duration: 0.01ms !important;
+      animation-iteration-count: 1 !important;
+      transition-duration: 0.01ms !important;
+    }
+  }
+
+  body {
+    @apply bg-background text-foreground;
+  }
+
+  /* Subtle gradient backgrounds for depth */
+  :root {
+    background: linear-gradient(to bottom, oklch(0.985 0 0) 0%, oklch(0.99 0 0) 50%, oklch(0.985 0 0) 100%);
+  }
+
+  .dark {
+    background: linear-gradient(to bottom, oklch(0.10 0 0) 0%, oklch(0.08 0 0) 50%, oklch(0.10 0 0) 100%);
+  }
+}
+
+/* ===========================================
+   LANGUAGE-SPECIFIC FONTS
+   Arabic: IBM Plex Sans Arabic (entire site)
+   English: Geist Sans (body), Newsreader (headings)
+   =========================================== */
+
+/* English mode - switch to Latin fonts with lighter weights */
+html[lang="en"] {
+  font-family: var(--font-geist-sans), system-ui, sans-serif;
+}
+
+html[lang="en"] body {
+  font-weight: 400;
+}
+
+html[lang="en"] .font-sans {
+  font-family: var(--font-geist-sans), system-ui, sans-serif;
+}
+
+html[lang="en"] .font-serif,
+html[lang="en"] .heading-display,
+html[lang="en"] .heading-tall {
+  font-family: var(--font-newsreader), Georgia, serif;
+  letter-spacing: -0.02em;
+}
+
+html[lang="en"] .heading-display {
+  font-weight: 500;
+}
+
+html[lang="en"] .heading-tall {
+  font-weight: 400;
+}
+
+/* Arabic mode (default) - use IBM Plex Sans Arabic everywhere */
+html[lang="ar-SA"],
+html[lang="ar-SA"] body,
+html[lang="ar-SA"] * {
+  font-family: var(--font-sans-arabic), system-ui, sans-serif;
+}
+
+html[lang="ar-SA"] .font-sans {
+  font-family: var(--font-sans-arabic), system-ui, sans-serif;
+}
+
+html[lang="ar-SA"] .font-serif,
+html[lang="ar-SA"] .heading-display,
+html[lang="ar-SA"] .heading-tall {
+  font-family: var(--font-sans-arabic), system-ui, sans-serif;
+  letter-spacing: 0;
+}
+
+html[lang="ar-SA"] .heading-display {
+  font-weight: 600;
+}
+
+html[lang="ar-SA"] .heading-tall {
+  font-weight: 500;
+}
+
+/* ===========================================
+   SCROLL ANIMATIONS
+   Fade in, slide in, blur in - element by element
+   Uses 'both' not 'forwards', starts at 0.01 opacity
+   =========================================== */
+
+@keyframes fadeSlideIn {
+  from {
+    opacity: 0.01;
+    transform: translateY(24px);
+    filter: blur(8px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+    filter: blur(0);
+  }
+}
+
+@keyframes fadeSlideInLeft {
+  from {
+    opacity: 0.01;
+    transform: translateX(-24px);
+    filter: blur(8px);
+  }
+  to {
+    opacity: 1;
+    transform: translateX(0);
+    filter: blur(0);
+  }
+}
+
+@keyframes fadeSlideInRight {
+  from {
+    opacity: 0.01;
+    transform: translateX(24px);
+    filter: blur(8px);
+  }
+  to {
+    opacity: 1;
+    transform: translateX(0);
+    filter: blur(0);
+  }
+}
+
+@keyframes scaleIn {
+  from {
+    opacity: 0.01;
+    transform: scale(0.95);
+    filter: blur(4px);
+  }
+  to {
+    opacity: 1;
+    transform: scale(1);
+    filter: blur(0);
+  }
+}
+
+/* Animation classes - use 'both' fill mode */
+.animate-in-view {
+  animation: fadeSlideIn 0.7s ease-out both;
+}
+
+.animate-in-view-left {
+  animation: fadeSlideInLeft 0.7s ease-out both;
+}
+
+.animate-in-view-right {
+  animation: fadeSlideInRight 0.7s ease-out both;
+}
+
+.animate-scale-in {
+  animation: scaleIn 0.6s ease-out both;
+}
+
+/* Stagger delays */
+.delay-100 { animation-delay: 100ms; }
+.delay-200 { animation-delay: 200ms; }
+.delay-300 { animation-delay: 300ms; }
+.delay-400 { animation-delay: 400ms; }
+.delay-500 { animation-delay: 500ms; }
+.delay-600 { animation-delay: 600ms; }
+.delay-700 { animation-delay: 700ms; }
+.delay-800 { animation-delay: 800ms; }
+
+/* ===========================================
+   BORDER BEAM ANIMATION
+   1px animated border on hover for pill buttons
+   =========================================== */
+
+@keyframes borderBeam {
+  0% {
+    background-position: 0% 50%;
+  }
+  100% {
+    background-position: 200% 50%;
+  }
+}
+
+.border-beam {
+  position: relative;
+  overflow: hidden;
+}
+
+.border-beam::before {
+  content: '';
+  position: absolute;
+  inset: 0;
+  border-radius: inherit;
+  padding: 1px;
+  background: linear-gradient(
+    90deg,
+    transparent 0%,
+    oklch(0.55 0.22 280) 25%,
+    oklch(0.7 0.25 280) 50%,
+    oklch(0.55 0.22 280) 75%,
+    transparent 100%
+  );
+  background-size: 200% 100%;
+  -webkit-mask: linear-gradient(#fff 0 0) content-box, linear-gradient(#fff 0 0);
+  -webkit-mask-composite: xor;
+  mask-composite: exclude;
+  opacity: 0;
+  transition: opacity 0.3s ease;
+}
+
+.border-beam:hover::before {
+  opacity: 1;
+  animation: borderBeam 2s linear infinite;
+}
+
+/* Tailwind utility class for border beam */
+.animate-border-beam {
+  background: linear-gradient(
+    90deg,
+    transparent 0%,
+    oklch(0.55 0.22 280) 25%,
+    oklch(0.7 0.25 280) 50%,
+    oklch(0.55 0.22 280) 75%,
+    transparent 100%
+  );
+  background-size: 200% 100%;
+  animation: borderBeam 2s linear infinite;
+}
+
+/* ===========================================
+   LINE ANIMATION
+   Animated vertical/horizontal lines
+   =========================================== */
+
+@keyframes lineGrow {
+  from {
+    transform: scaleY(0);
+    opacity: 0.01;
+  }
+  to {
+    transform: scaleY(1);
+    opacity: 1;
+  }
+}
+
+@keyframes linePulse {
+  0%, 100% {
+    opacity: 0.3;
+  }
+  50% {
+    opacity: 0.8;
+  }
+}
+
+.line-vertical {
+  width: 1px;
+  background: linear-gradient(to bottom, transparent, oklch(0.55 0.22 280 / 0.5), transparent);
+  transform-origin: top;
+  animation: lineGrow 1s ease-out both;
+}
+
+.line-horizontal {
+  height: 1px;
+  background: linear-gradient(to right, transparent, oklch(0.55 0.22 280 / 0.5), transparent);
+  transform-origin: left;
+}
+
+.line-pulse {
+  animation: linePulse 3s ease-in-out infinite;
+}
+
+/* ===========================================
+   GRID ANIMATION
+   Subtle animated grid background
+   =========================================== */
+
+@keyframes gridFade {
+  0%, 100% {
+    opacity: 0.03;
+  }
+  50% {
+    opacity: 0.08;
+  }
+}
+
+.bg-grid-animated {
+  background-image:
+    linear-gradient(to right, oklch(0.5 0 0 / 0.1) 1px, transparent 1px),
+    linear-gradient(to bottom, oklch(0.5 0 0 / 0.1) 1px, transparent 1px);
+  background-size: 48px 48px;
+  animation: gridFade 8s ease-in-out infinite;
+}
+
+.dark .bg-grid-animated {
+  background-image:
+    linear-gradient(to right, oklch(1 0 0 / 0.03) 1px, transparent 1px),
+    linear-gradient(to bottom, oklch(1 0 0 / 0.03) 1px, transparent 1px);
+}
+
+/* ===========================================
+   SONAR/PULSE ANIMATION
+   Expanding circles effect
+   =========================================== */
+
+@keyframes sonar {
+  0% {
+    transform: scale(1);
+    opacity: 0.8;
+  }
+  100% {
+    transform: scale(2.5);
+    opacity: 0;
+  }
+}
+
+.sonar {
+  position: relative;
+}
+
+.sonar::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  border-radius: inherit;
+  border: 1px solid oklch(0.55 0.22 280 / 0.5);
+  animation: sonar 2s ease-out infinite;
+}
+
+/* ===========================================
+   NUMBER DETAILS
+   Stylized 01, 02, 03 indicators
+   =========================================== */
+
+.number-detail {
+  font-family: var(--font-mono);
+  font-size: 0.65rem;
+  font-weight: 500;
+  letter-spacing: 0.15em;
+  color: oklch(0.5 0 0);
+  text-transform: uppercase;
+}
+
+.dark .number-detail {
+  color: oklch(0.5 0 0);
+}
+
+/* ===========================================
+   CONTAINER LINES
+   Vertical decorative lines on container edges
+   =========================================== */
+
+.container-lines {
+  position: relative;
+}
+
+.container-lines::before,
+.container-lines::after {
+  content: '';
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  width: 1px;
+  background: linear-gradient(
+    to bottom,
+    transparent 0%,
+    oklch(0.5 0 0 / 0.15) 10%,
+    oklch(0.5 0 0 / 0.15) 90%,
+    transparent 100%
+  );
+}
+
+.container-lines::before {
+  left: 0;
+}
+
+.container-lines::after {
+  right: 0;
+}
+
+.dark .container-lines::before,
+.dark .container-lines::after {
+  background: linear-gradient(
+    to bottom,
+    transparent 0%,
+    oklch(1 0 0 / 0.08) 10%,
+    oklch(1 0 0 / 0.08) 90%,
+    transparent 100%
+  );
+}
+
+/* ===========================================
+   UPSCALE TYPOGRAPHY
+   Large, tall Newsreader serif headings
+   =========================================== */
+
+.font-serif {
+  /* Font family set by language-specific rules above */
+  font-family: var(--font-serif-arabic), Georgia, serif;
+}
+
+.heading-display {
+  /* Font family set by language-specific rules above */
+  font-weight: 600;
+  line-height: 1.2;
+}
+
+.heading-tall {
+  /* Font family set by language-specific rules above */
+  font-weight: 500;
+  line-height: 1.25;
+}
+
+/* ===========================================
+   FLOATING ANIMATION
+   Gentle up/down hovering effect
+   =========================================== */
+
+@keyframes float {
+  0%, 100% {
+    transform: translateY(0);
+  }
+  50% {
+    transform: translateY(-20px);
+  }
+}
+
+@keyframes floatSlow {
+  0%, 100% {
+    transform: translateY(0) rotate(0deg);
+  }
+  50% {
+    transform: translateY(-10px) rotate(2deg);
+  }
+}
+
+.animate-float {
+  animation: float 6s ease-in-out infinite;
+}
+
+.animate-float-slow {
+  animation: floatSlow 8s ease-in-out infinite;
+}
+
+.animate-float-delay-1 {
+  animation: float 6s ease-in-out infinite;
+  animation-delay: 1s;
+}
+
+.animate-float-delay-2 {
+  animation: float 6s ease-in-out infinite;
+  animation-delay: 2s;
+}
+
+/* ===========================================
+   SHIMMER/SHINE EFFECT
+   Moving highlight across elements
+   =========================================== */
+
+@keyframes shimmer {
+  0% {
+    background-position: -200% 0;
+  }
+  100% {
+    background-position: 200% 0;
+  }
+}
+
+.shimmer {
+  position: relative;
+  overflow: hidden;
+}
+
+.shimmer::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  background: linear-gradient(
+    90deg,
+    transparent 0%,
+    oklch(1 0 0 / 0.1) 50%,
+    transparent 100%
+  );
+  background-size: 200% 100%;
+  animation: shimmer 3s ease-in-out infinite;
+}
+
+/* ===========================================
+   GRADIENT ANIMATION
+   Moving/morphing gradients
+   =========================================== */
+
+@keyframes gradientShift {
+  0% {
+    background-position: 0% 50%;
+  }
+  50% {
+    background-position: 100% 50%;
+  }
+  100% {
+    background-position: 0% 50%;
+  }
+}
+
+@keyframes gradientRotate {
+  0% {
+    filter: hue-rotate(0deg);
+  }
+  100% {
+    filter: hue-rotate(360deg);
+  }
+}
+
+.animate-gradient {
+  background-size: 200% 200%;
+  animation: gradientShift 8s ease infinite;
+}
+
+.animate-gradient-slow {
+  background-size: 400% 400%;
+  animation: gradientShift 15s ease infinite;
+}
+
+/* ===========================================
+   GLOW PULSE
+   Pulsating glow effect
+   =========================================== */
+
+@keyframes glowPulse {
+  0%, 100% {
+    box-shadow: 0 0 20px oklch(0.55 0.22 280 / 0.3);
+  }
+  50% {
+    box-shadow: 0 0 40px oklch(0.55 0.22 280 / 0.6), 0 0 60px oklch(0.55 0.22 280 / 0.3);
+  }
+}
+
+@keyframes textGlow {
+  0%, 100% {
+    text-shadow: 0 0 10px oklch(0.55 0.22 280 / 0.5);
+  }
+  50% {
+    text-shadow: 0 0 20px oklch(0.55 0.22 280 / 0.8), 0 0 30px oklch(0.55 0.22 280 / 0.4);
+  }
+}
+
+.glow-pulse {
+  animation: glowPulse 3s ease-in-out infinite;
+}
+
+.text-glow {
+  animation: textGlow 3s ease-in-out infinite;
+}
+
+/* ===========================================
+   SPIN ANIMATIONS
+   Rotating elements
+   =========================================== */
+
+@keyframes spinSlow {
+  from {
+    transform: rotate(0deg);
+  }
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+@keyframes spinReverse {
+  from {
+    transform: rotate(360deg);
+  }
+  to {
+    transform: rotate(0deg);
+  }
+}
+
+.animate-spin-slow {
+  animation: spinSlow 20s linear infinite;
+}
+
+.animate-spin-reverse {
+  animation: spinReverse 25s linear infinite;
+}
+
+/* ===========================================
+   MORPH/BLOB ANIMATION
+   Organic shape morphing
+   =========================================== */
+
+@keyframes morph {
+  0%, 100% {
+    border-radius: 60% 40% 30% 70% / 60% 30% 70% 40%;
+  }
+  25% {
+    border-radius: 30% 60% 70% 40% / 50% 60% 30% 60%;
+  }
+  50% {
+    border-radius: 50% 60% 30% 60% / 30% 60% 70% 40%;
+  }
+  75% {
+    border-radius: 60% 40% 60% 30% / 70% 30% 50% 60%;
+  }
+}
+
+.animate-morph {
+  animation: morph 8s ease-in-out infinite;
+}
+
+/* ===========================================
+   SPARKLE/TWINKLE
+   Twinkling star effect
+   =========================================== */
+
+@keyframes twinkle {
+  0%, 100% {
+    opacity: 0.3;
+    transform: scale(1);
+  }
+  50% {
+    opacity: 1;
+    transform: scale(1.2);
+  }
+}
+
+@keyframes sparkle {
+  0%, 100% {
+    opacity: 0;
+    transform: scale(0) rotate(0deg);
+  }
+  50% {
+    opacity: 1;
+    transform: scale(1) rotate(180deg);
+  }
+}
+
+.animate-twinkle {
+  animation: twinkle 2s ease-in-out infinite;
+}
+
+.animate-sparkle {
+  animation: sparkle 1.5s ease-in-out infinite;
+}
+
+/* ===========================================
+   WAVE ANIMATION
+   Flowing wave motion
+   =========================================== */
+
+@keyframes wave {
+  0% {
+    transform: translateX(0) translateZ(0) scaleY(1);
+  }
+  50% {
+    transform: translateX(-25%) translateZ(0) scaleY(0.8);
+  }
+  100% {
+    transform: translateX(-50%) translateZ(0) scaleY(1);
+  }
+}
+
+.animate-wave {
+  animation: wave 10s linear infinite;
+}
+
+/* ===========================================
+   SLIDE ANIMATIONS
+   Various sliding effects
+   =========================================== */
+
+@keyframes slideInFromBottom {
+  from {
+    opacity: 0;
+    transform: translateY(100px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+@keyframes slideLoop {
+  0% {
+    transform: translateX(0);
+  }
+  100% {
+    transform: translateX(-50%);
+  }
+}
+
+.animate-slide-up {
+  animation: slideInFromBottom 0.8s ease-out both;
+}
+
+.animate-marquee {
+  animation: slideLoop 30s linear infinite;
+}
+
+/* ===========================================
+   CARD HOVER EFFECTS
+   Interactive card animations
+   =========================================== */
+
+.card-hover-lift {
+  transition: transform 0.3s ease, box-shadow 0.3s ease;
+}
+
+.card-hover-lift:hover {
+  transform: translateY(-8px);
+  box-shadow: 0 20px 40px oklch(0.15 0 0 / 0.1);
+}
+
+.card-hover-glow {
+  transition: box-shadow 0.3s ease;
+}
+
+.card-hover-glow:hover {
+  box-shadow: 0 0 30px oklch(0.55 0.22 280 / 0.2);
+}
+
+/* ===========================================
+   ICON ANIMATIONS
+   Animated icons
+   =========================================== */
+
+@keyframes iconBounce {
+  0%, 100% {
+    transform: translateY(0);
+  }
+  50% {
+    transform: translateY(-5px);
+  }
+}
+
+@keyframes iconPulse {
+  0%, 100% {
+    transform: scale(1);
+  }
+  50% {
+    transform: scale(1.1);
+  }
+}
+
+@keyframes iconShake {
+  0%, 100% {
+    transform: rotate(0deg);
+  }
+  25% {
+    transform: rotate(-10deg);
+  }
+  75% {
+    transform: rotate(10deg);
+  }
+}
+
+.icon-bounce:hover {
+  animation: iconBounce 0.5s ease-in-out;
+}
+
+.icon-pulse:hover {
+  animation: iconPulse 0.5s ease-in-out;
+}
+
+.icon-shake:hover {
+  animation: iconShake 0.5s ease-in-out;
+}
+
+/* ===========================================
+   PARTICLE/DOT ANIMATIONS
+   Floating particles
+   =========================================== */
+
+@keyframes particleFloat {
+  0%, 100% {
+    transform: translate(0, 0) scale(1);
+    opacity: 0.5;
+  }
+  25% {
+    transform: translate(10px, -20px) scale(1.1);
+    opacity: 0.8;
+  }
+  50% {
+    transform: translate(-5px, -40px) scale(0.9);
+    opacity: 0.6;
+  }
+  75% {
+    transform: translate(15px, -20px) scale(1.05);
+    opacity: 0.7;
+  }
+}
+
+.particle {
+  animation: particleFloat 8s ease-in-out infinite;
+}
+
+.particle-1 { animation-delay: 0s; }
+.particle-2 { animation-delay: 1s; }
+.particle-3 { animation-delay: 2s; }
+.particle-4 { animation-delay: 3s; }
+.particle-5 { animation-delay: 4s; }
+
+/* ===========================================
+   ORBIT ANIMATION
+   Elements orbiting around a center
+   =========================================== */
+
+@keyframes orbit {
+  from {
+    transform: rotate(0deg) translateX(100px) rotate(0deg);
+  }
+  to {
+    transform: rotate(360deg) translateX(100px) rotate(-360deg);
+  }
+}
+
+.animate-orbit {
+  animation: orbit 20s linear infinite;
+}
+
+/* ===========================================
+   TYPING EFFECT
+   Cursor blinking
+   =========================================== */
+
+@keyframes blink {
+  0%, 50% {
+    opacity: 1;
+  }
+  51%, 100% {
+    opacity: 0;
+  }
+}
+
+.cursor-blink::after {
+  content: '|';
+  animation: blink 1s step-end infinite;
+}
+
+/* ===========================================
+   GRADIENT TEXT ANIMATION
+   Moving gradient on text
+   =========================================== */
+
+@keyframes textGradient {
+  0% {
+    background-position: 0% 50%;
+  }
+  50% {
+    background-position: 100% 50%;
+  }
+  100% {
+    background-position: 0% 50%;
+  }
+}
+
+.animate-text-gradient {
+  background-size: 200% auto;
+  animation: textGradient 4s ease infinite;
+}
+
+/* ===========================================
+   REACT-GRAB STYLING (preserved)
+   =========================================== */
+
+[data-react-grab] {
+  --grab-primary: oklch(0.55 0.2 280);
+  --grab-primary-light: oklch(0.65 0.18 280);
+  --grab-bg: oklch(0.15 0.02 280);
+  --grab-border: oklch(0.3 0.05 280);
+}
+
+[data-react-grab-selection] {
+  border-color: oklch(0.55 0.2 280) !important;
+  background: oklch(0.55 0.2 280 / 0.1) !important;
+}
+
+[data-react-grab-label] {
+  background: oklch(0.12 0.02 280) !important;
+  border: 1px solid oklch(0.3 0.05 280) !important;
+  border-radius: 0.75rem !important;
+  box-shadow: 0 8px 32px oklch(0 0 0 / 0.4) !important;
+}
+
+[data-react-grab-input] {
+  background: oklch(0.18 0.02 280) !important;
+  border-color: oklch(0.35 0.05 280) !important;
+  color: oklch(0.95 0 0) !important;
+}
+
+[data-react-grab-input]:focus {
+  border-color: oklch(0.55 0.2 280) !important;
+  box-shadow: 0 0 0 2px oklch(0.55 0.2 280 / 0.3) !important;
+}
+
+[data-react-grab-button] {
+  background: oklch(0.55 0.2 280) !important;
+  color: white !important;
+}
+
+[data-react-grab-button]:hover {
+  background: oklch(0.6 0.22 280) !important;
+}
+
+[data-react-grab-crosshair] {
+  background: oklch(0.55 0.2 280) !important;
+}
+
+/* ===========================================
+   GLASSMORPHISM UTILITIES
+   Modern glass effect with blur and transparency
+   =========================================== */
+
+.glass {
+  background: var(--glass-bg);
+  backdrop-filter: blur(12px) saturate(150%);
+  -webkit-backdrop-filter: blur(12px) saturate(150%);
+  border: 1px solid var(--glass-border);
+  box-shadow: var(--glass-shadow);
+}
+
+.glass-sm {
+  background: var(--glass-bg);
+  backdrop-filter: blur(8px) saturate(120%);
+  -webkit-backdrop-filter: blur(8px) saturate(120%);
+  border: 1px solid var(--glass-border);
+  box-shadow: 0 2px 8px oklch(0.5 0 0 / 0.05);
+}
+
+.glass-lg {
+  background: var(--glass-bg);
+  backdrop-filter: blur(20px) saturate(180%);
+  -webkit-backdrop-filter: blur(20px) saturate(180%);
+  border: 1px solid var(--glass-border);
+  box-shadow: 0 8px 32px oklch(0.5 0 0 / 0.12);
+}
+
+.glass-card {
+  background: var(--glass-bg);
+  backdrop-filter: blur(12px) saturate(150%);
+  -webkit-backdrop-filter: blur(12px) saturate(150%);
+  border: 1px solid var(--glass-border);
+  box-shadow: var(--glass-shadow);
+  border-radius: var(--radius-lg);
+}
+
+.glass-card-hover {
+  background: var(--glass-bg);
+  backdrop-filter: blur(12px) saturate(150%);
+  -webkit-backdrop-filter: blur(12px) saturate(150%);
+  border: 1px solid var(--glass-border);
+  box-shadow: var(--glass-shadow);
+  border-radius: var(--radius-lg);
+  transition: all 0.3s;
+}
+
+.glass-card-hover:hover {
+  transform: scale(1.05);
+  box-shadow: 0 25px 50px -12px oklch(0.7 0.2 280 / 0.25);
+  border-color: oklch(0.7 0.2 280 / 0.4);
+}
+
+.dark .glass-card,
+.dark .glass-card-hover {
+  box-shadow: 0 4px 24px oklch(0 0 0 / 0.5), inset 0 1px 0 oklch(1 0 0 / 0.05);
+}
+
+/* ===========================================
+   ADVANCED CARD STYLES
+   More sophisticated card designs
+   =========================================== */
+
+.card-gradient-border {
+  position: relative;
+  background: var(--card);
+  border-radius: var(--radius-lg);
+  overflow: hidden;
+}
+
+.card-gradient-border::before {
+  content: '';
+  position: absolute;
+  inset: 0;
+  padding: 1px;
+  border-radius: inherit;
+  background: linear-gradient(
+    135deg,
+    var(--primary) 0%,
+    transparent 50%,
+    var(--primary) 100%
+  );
+  mask: linear-gradient(#fff 0 0) content-box, linear-gradient(#fff 0 0);
+  mask-composite: exclude;
+  -webkit-mask-composite: xor;
+  opacity: 0.5;
+  transition: opacity 0.3s ease;
+}
+
+.card-gradient-border:hover::before {
+  opacity: 1;
+}
+
+.card-inner-glow {
+  box-shadow: inset 0 0 40px oklch(0.55 0.22 280 / 0.03);
+}
+
+.dark .card-inner-glow {
+  box-shadow: inset 0 0 40px oklch(0.7 0.2 280 / 0.08);
+}
+
+/* ===========================================
+   TEXT GRADIENTS
+   Enhanced gradient text effects
+   =========================================== */
+
+.text-gradient-shimmer {
+  background: linear-gradient(
+    90deg,
+    var(--foreground) 0%,
+    var(--primary) 50%,
+    var(--foreground) 100%
+  );
+  background-size: 200% auto;
+  -webkit-background-clip: text;
+  background-clip: text;
+  -webkit-text-fill-color: transparent;
+  animation: textGradient 3s linear infinite;
+}
+
+.text-gradient-multi {
+  background: linear-gradient(
+    135deg,
+    oklch(0.55 0.22 280) 0%,
+    oklch(0.7 0.25 280) 50%,
+    oklch(0.5 0.2 280) 100%
+  );
+  -webkit-background-clip: text;
+  background-clip: text;
+  -webkit-text-fill-color: transparent;
+}
+
+/* ===========================================
+   ENHANCED BUTTON STYLES
+   More sophisticated button designs
+   =========================================== */
+
+.btn-glass {
+  background: var(--glass-bg);
+  backdrop-filter: blur(8px) saturate(120%);
+  -webkit-backdrop-filter: blur(8px) saturate(120%);
+  border: 1px solid var(--glass-border);
+  transition: all 0.3s ease;
+}
+
+.btn-glass:hover {
+  background: var(--primary);
+  color: var(--primary-foreground);
+  border-color: var(--primary);
+  transform: translateY(-2px);
+  box-shadow: 0 8px 20px oklch(0.55 0.22 280 / 0.3);
+}
+
+.btn-gradient-outline {
+  position: relative;
+  background: transparent;
+  border: 2px solid var(--primary);
+  color: var(--primary);
+  overflow: hidden;
+  transition: all 0.3s ease;
+}
+
+.btn-gradient-outline::before {
+  content: '';
+  position: absolute;
+  inset: 0;
+  background: linear-gradient(135deg, var(--primary) 0%, oklch(0.65 0.25 280) 100%);
+  opacity: 0;
+  transition: opacity 0.3s ease;
+  z-index: -1;
+}
+
+.btn-gradient-outline:hover::before {
+  opacity: 1;
+}
+
+.btn-gradient-outline:hover {
+  color: var(--primary-foreground);
+  transform: translateY(-2px);
+  box-shadow: 0 8px 20px oklch(0.55 0.22 280 / 0.3);
+}
+
+/* ===========================================
+   LOADING STATES
+   Enhanced loading animations
+   =========================================== */
+
+.skeleton {
+  background: linear-gradient(
+    90deg,
+    var(--muted) 0%,
+    oklch(0.9 0 0 / 0.5) 50%,
+    var(--muted) 100%
+  );
+  background-size: 200% 100%;
+  animation: skeleton-loading 1.5s ease-in-out infinite;
+  border-radius: var(--radius);
+}
+
+@keyframes skeleton-loading {
+  0% {
+    background-position: 200% 0;
+  }
+  100% {
+    background-position: -200% 0;
+  }
+}
+
+/* ===========================================
+   FOCUS STATES
+   Improved accessibility with visual feedback
+   =========================================== */
+
+.focus-ring {
+  outline: none;
+  transition: all 0.2s ease;
+}
+
+.focus-ring:focus-visible {
+  outline: 2px solid var(--primary);
+  outline-offset: 2px;
+  box-shadow: 0 0 0 4px oklch(0.55 0.22 280 / 0.1);
+}
+
+.focus-ring-inner {
+  outline: none;
+  transition: all 0.2s ease;
+}
+
+.focus-ring-inner:focus-visible {
+  box-shadow: inset 0 0 0 2px var(--primary);
+}
+
+/* ===========================================
+   NOISE TEXTURE
+   Subtle noise for premium feel
+   =========================================== */
+
+.noise-overlay {
+  position: relative;
+}
+
+.noise-overlay::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  opacity: 0.03;
+  pointer-events: none;
+  background-image: url("data:image/svg+xml,%3Csvg viewBox='0 0 200 200' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='noiseFilter'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.9' numOctaves='4' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23noiseFilter)'/%3E%3C/svg%3E");
+}
+
+/* ===========================================
+   SCROLLBAR STYLING
+   Custom scrollbar for webkit browsers
+   =========================================== */
+
+::-webkit-scrollbar {
+  width: 10px;
+  height: 10px;
+}
+
+::-webkit-scrollbar-track {
+  background: var(--muted);
+  border-radius: 10px;
+}
+
+::-webkit-scrollbar-thumb {
+  background: var(--muted-foreground);
+  border-radius: 10px;
+  border: 2px solid var(--muted);
+}
+
+::-webkit-scrollbar-thumb:hover {
+  background: var(--foreground);
+}
