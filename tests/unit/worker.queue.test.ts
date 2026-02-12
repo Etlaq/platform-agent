@@ -1,0 +1,188 @@
+import { beforeEach, describe, expect, it, vi } from 'vitest'
+
+interface RunView {
+  id: string
+  status: 'queued' | 'running' | 'completed' | 'error' | 'cancelled'
+  prompt: string
+  input: unknown | null
+  provider: string | null
+  model: string | null
+  workspaceBackend: 'host' | 'e2b' | null
+}
+
+interface JobView {
+  attempts: number
+  maxAttempts: number
+}
+
+interface Usage {
+  inputTokens: number
+  outputTokens: number
+  totalTokens: number
+}
+
+interface AgentResult {
+  output: string
+  provider: string
+  model: string
+  modelSource: string
+  usage?: Usage
+  durationMs?: number
+}
+
+const subscriptionHandlers: Array<(event: { runId: string }) => Promise<void>> = []
+const publishMock = vi.fn(async (_payload: { runId: string }) => undefined)
+
+const cancelJobByRunIdMock = vi.fn(async (_runId: string) => undefined)
+const completeRunMock = vi.fn(async (
+  _id: string,
+  _output: string,
+  _meta?: {
+    provider?: string
+    model?: string
+    usage?: Usage
+    durationMs?: number
+  },
+) => undefined)
+const failRunMock = vi.fn(async (_id: string, _error: string) => undefined)
+const getJobByRunIdMock = vi.fn(async (_runId: string) => null as JobView | null)
+const getRunMock = vi.fn(async (_runId: string) => null as RunView | null)
+const insertEventWithNextSeqMock = vi.fn(async (_params: {
+  runId: string
+  type: string
+  payload: unknown
+}) => undefined)
+const markJobFailedMock = vi.fn(async (_runId: string, _attempts: number, _delaySeconds: number) => undefined)
+const queueRunForRetryMock = vi.fn(async (_id: string) => undefined)
+const setJobStatusMock = vi.fn(async (_runId: string, _status: string) => undefined)
+const updateRunStatusMock = vi.fn(async (_id: string, _status: string) => undefined)
+
+const runAgentMock = vi.fn(async (_params: {
+  prompt: string
+  input?: unknown
+  provider?: string
+  model?: string
+  runId: string
+  workspaceBackend?: 'host' | 'e2b'
+  signal: AbortSignal
+  onEvent: (event: { type: 'token' | 'tool' | 'status'; payload: unknown }) => void
+}) => null as AgentResult | null)
+const isRunAbortedErrorMock = vi.fn((_error: unknown) => false)
+const syncRollbackManifestMock = vi.fn(async (_runId: string) => undefined)
+const commitRunToGitMock = vi.fn(async (_params: {
+  runId: string
+  workspaceBackend?: 'host' | 'e2b' | null
+}) => ({ ok: false, skipped: 'no_changes' as const }))
+
+vi.mock('encore.dev/pubsub', () => {
+  class Topic<T extends { runId: string }> {
+    constructor(_name: string, _opts: { deliveryGuarantee: 'at-least-once' }) {}
+
+    publish(payload: T) {
+      return publishMock(payload)
+    }
+  }
+
+  class Subscription {
+    constructor(
+      _topic: unknown,
+      _name: string,
+      params: { handler: (event: { runId: string }) => Promise<void> },
+    ) {
+      subscriptionHandlers.push(params.handler)
+    }
+  }
+
+  return { Topic, Subscription }
+})
+
+vi.mock('../../data/db', () => ({
+  cancelJobByRunId: cancelJobByRunIdMock,
+  completeRun: completeRunMock,
+  failRun: failRunMock,
+  getJobByRunId: getJobByRunIdMock,
+  getRun: getRunMock,
+  insertEventWithNextSeq: insertEventWithNextSeqMock,
+  markJobFailed: markJobFailedMock,
+  queueRunForRetry: queueRunForRetryMock,
+  setJobStatus: setJobStatusMock,
+  updateRunStatus: updateRunStatusMock,
+}))
+
+vi.mock('../../agent/runAgent', () => ({
+  isRunAbortedError: isRunAbortedErrorMock,
+  runAgent: runAgentMock,
+}))
+
+vi.mock('../../storage/storage', () => ({
+  syncRollbackManifest: syncRollbackManifestMock,
+}))
+
+vi.mock('../../worker/gitCommit', () => ({
+  commitRunToGit: commitRunToGitMock,
+}))
+
+describe('worker/queue completion persistence', () => {
+  beforeEach(() => {
+    vi.resetModules()
+
+    subscriptionHandlers.length = 0
+    publishMock.mockClear()
+    cancelJobByRunIdMock.mockClear()
+    completeRunMock.mockClear()
+    failRunMock.mockClear()
+    getJobByRunIdMock.mockClear()
+    getRunMock.mockClear()
+    insertEventWithNextSeqMock.mockClear()
+    markJobFailedMock.mockClear()
+    queueRunForRetryMock.mockClear()
+    setJobStatusMock.mockClear()
+    updateRunStatusMock.mockClear()
+    runAgentMock.mockClear()
+    isRunAbortedErrorMock.mockClear()
+    syncRollbackManifestMock.mockClear()
+    commitRunToGitMock.mockClear()
+  })
+
+  it('passes resolved provider/model into completeRun with usage/duration', async () => {
+    const run: RunView = {
+      id: 'run-1',
+      status: 'queued',
+      prompt: 'build feature',
+      input: { task: 'feature' },
+      provider: null,
+      model: null,
+      workspaceBackend: 'host',
+    }
+
+    getRunMock.mockResolvedValue(run)
+    getJobByRunIdMock.mockResolvedValue({ attempts: 0, maxAttempts: 3 })
+    runAgentMock.mockResolvedValue({
+      output: 'done',
+      provider: 'openai',
+      model: 'gpt-5',
+      modelSource: 'default',
+      usage: { inputTokens: 15, outputTokens: 10, totalTokens: 25 },
+      durationMs: 640,
+    })
+
+    await import('../../worker/queue')
+    expect(subscriptionHandlers).toHaveLength(1)
+
+    await subscriptionHandlers[0]({ runId: 'run-1' })
+
+    expect(completeRunMock).toHaveBeenCalledTimes(1)
+    expect(completeRunMock).toHaveBeenCalledWith('run-1', 'done', {
+      provider: 'openai',
+      model: 'gpt-5',
+      usage: { inputTokens: 15, outputTokens: 10, totalTokens: 25 },
+      durationMs: 640,
+    })
+
+    expect(setJobStatusMock).toHaveBeenCalledWith('run-1', 'succeeded')
+    expect(commitRunToGitMock).toHaveBeenCalledWith({
+      runId: 'run-1',
+      workspaceBackend: 'host',
+    })
+  })
+})

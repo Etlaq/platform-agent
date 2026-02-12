@@ -222,9 +222,13 @@ export async function updateRunStatus(id: string, status: RunStatus) {
 }
 
 export async function completeRun(id: string, output: string, meta?: {
+  provider?: string
+  model?: string
   usage?: { inputTokens: number; outputTokens: number; totalTokens: number }
   durationMs?: number
 }) {
+  const provider = meta?.provider ?? null
+  const model = meta?.model ?? null
   const inputTokens = meta?.usage?.inputTokens ?? null
   const outputTokens = meta?.usage?.outputTokens ?? null
   const totalTokens = meta?.usage?.totalTokens ?? null
@@ -233,6 +237,8 @@ export async function completeRun(id: string, output: string, meta?: {
     UPDATE runs
     SET status = 'completed',
         output = ${output},
+        provider = COALESCE(${provider}, provider),
+        model = COALESCE(${model}, model),
         input_tokens = ${inputTokens},
         output_tokens = ${outputTokens},
         total_tokens = ${totalTokens},

@@ -37,7 +37,7 @@ All endpoints except `/`, `/health`, and `/capabilities` require the `X-Agent-Ap
 | GET | `/sandbox/:id/info` | Sandbox info |
 | POST | `/sandbox/:id/dev/start` | Start sandbox dev server |
 | POST | `/sandbox/:id/dev/stop` | Stop sandbox dev server |
-| GET | `/download.zip` | Download workspace as ZIP |
+| GET | `/download.zip` | Download workspace as ZIP (includes `.git`) |
 | GET | `/metrics` | Prometheus-style metrics |
 
 ### Creating a Run
@@ -60,7 +60,7 @@ Each run is processed in two phases:
 
 In E2B mode, an optional **auto-lint** pass runs after build to fix lint errors automatically.
 
-All file changes in host mode are tracked by the rollback system and can be reversed via `POST /runs/:id/rollback`.
+After successful host runs, workspace changes are staged and committed to Git automatically (unless `AUTO_GIT_COMMIT=false`).
 
 ## Services
 
@@ -104,6 +104,9 @@ The `agent/` directory contains the runtime engine (not an Encore service) — o
 | `E2B_API_KEY` | E2B sandbox API key |
 | `E2B_TEMPLATE` | E2B template ID |
 | `MCP_SERVERS` | JSON config for MCP tool servers |
+| `AUTO_GIT_COMMIT` | Disable/enable auto-commit after successful host runs (`false` disables; default enabled) |
+| `AGENT_GIT_AUTHOR_NAME` / `AGENT_GIT_AUTHOR_EMAIL` | Optional Git author identity for auto-commits |
+| `AGENT_GIT_COMMITTER_NAME` / `AGENT_GIT_COMMITTER_EMAIL` | Optional Git committer identity for auto-commits |
 | `LANGSMITH_TRACING` | Enable LangSmith tracing (`true`) |
 | `LANGSMITH_API_KEY` | LangSmith API key |
 

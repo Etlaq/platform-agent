@@ -2,6 +2,22 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
 const invokeMock = vi.fn()
 const createDeepAgentMock = vi.fn(() => ({ invoke: invokeMock }))
+const sandboxRunMock = vi.fn()
+const sandboxGetHostMock = vi.fn(() => 'sandbox-host')
+const sandboxCreateMock = vi.fn(async () => ({
+  sandboxId: 'sandbox-test-id',
+  commands: { run: sandboxRunMock },
+  getHost: sandboxGetHostMock,
+}))
+
+interface MockInvokeConfig {
+  callbacks?: Array<{
+    handleToolStart?: (tool: { name?: string }, input: unknown) => void
+    handleToolEnd?: (output: unknown, runId: string) => void
+  }>
+  tags?: string[]
+  metadata?: { phase?: string }
+}
 
 vi.mock('deepagents', () => {
   class FilesystemBackend {
@@ -33,6 +49,10 @@ vi.mock('deepagents', () => {
   }
 })
 
+vi.mock('@e2b/code-interpreter', () => ({
+  Sandbox: { create: sandboxCreateMock },
+}))
+
 vi.mock('../../agent/provider', () => ({
   resolveModelSelection: () => ({
     provider: 'openai',
@@ -56,11 +76,18 @@ describe('runAgent two-phase flow', () => {
   beforeEach(() => {
     invokeMock.mockReset()
     createDeepAgentMock.mockClear()
+    sandboxRunMock.mockReset()
+    sandboxGetHostMock.mockClear()
+    sandboxCreateMock.mockClear()
     process.env = {
       ...originalEnv,
       SEED_AGENTS_MD: 'false',
       ALLOW_HOST_INSTALLS: 'false',
     }
+    delete process.env.E2B_API_KEY
+    delete process.env.E2B_TEMPLATE
+    delete process.env.AUTO_LINT_AFTER_BUILD
+    delete process.env.AUTO_LINT_FIX_MAX_PASSES
   })
 
   afterEach(() => {
@@ -156,5 +183,197 @@ describe('runAgent two-phase flow', () => {
 
     expect(result.plan?.summary).toBe('Implement change')
     expect(result.output).toContain('Implemented the requested change.')
+  })
+
+  it('falls back to a synthetic plan when phase 1 has no JSON or todos', async () => {
+    invokeMock
+      .mockImplementationOnce(async ({ messages }: { messages: unknown[] }) => ({
+        messages: [
+          ...messages,
+          {
+            role: 'assistant',
+            content: 'I will inspect the code and then implement the requested update.',
+          },
+        ],
+      }))
+      .mockImplementationOnce(async ({ messages }: { messages: unknown[] }) => ({
+        messages: [
+          ...messages,
+          {
+            role: 'assistant',
+            content: 'Implemented with best effort.',
+          },
+        ],
+      }))
+
+    const events: Array<{ type: 'token' | 'tool' | 'status'; payload: unknown }> = []
+    const { runAgent } = await import('../../agent/runAgent')
+    const result = await runAgent({
+      prompt: 'Ship the refactor',
+      runId: 'test-run-fallback',
+      onEvent: (event) => {
+        events.push(event)
+      },
+    })
+
+    expect(invokeMock).toHaveBeenCalledTimes(2)
+    expect(result.plan?.summary).toBe('I will inspect the code and then implement the requested update.')
+    expect(result.plan?.todos).toHaveLength(1)
+    expect(result.plan?.todos[0]?.title).toBe('Implement requested change')
+    expect(result.plan?.todos[0]?.details).toContain('No structured todos were parsed')
+
+    const planReady = events
+      .filter((event) => event.type === 'status')
+      .map((event) => event.payload as Record<string, unknown>)
+      .find((payload) => payload.status === 'plan_ready')
+
+    const planReadyTodos = (planReady?.todos as Array<{ title?: string }> | undefined) ?? []
+    expect(planReadyTodos[0]?.title).toBe('Implement requested change')
+  })
+
+  it('emits plan policy warning when plan phase triggers a mutating project action', async () => {
+    invokeMock
+      .mockImplementationOnce(
+        async ({ messages }: { messages: unknown[] }, config: MockInvokeConfig) => {
+          const callback = config.callbacks?.[0]
+          callback?.handleToolStart?.({ name: 'project_actions' }, { action: 'run_install' })
+          return {
+            messages: [
+              ...messages,
+              {
+                role: 'assistant',
+                content:
+                  '```json\n{"summary":"Plan ready","todos":[{"id":"1","title":"Apply update"}]}\n```',
+              },
+            ],
+          }
+        }
+      )
+      .mockImplementationOnce(async ({ messages }: { messages: unknown[] }) => ({
+        messages: [
+          ...messages,
+          {
+            role: 'assistant',
+            content: 'Applied update.',
+          },
+        ],
+      }))
+
+    const events: Array<{ type: 'token' | 'tool' | 'status'; payload: unknown }> = []
+    const { runAgent } = await import('../../agent/runAgent')
+    await runAgent({
+      prompt: 'Implement safely',
+      runId: 'test-run-warning',
+      onEvent: (event) => {
+        events.push(event)
+      },
+    })
+
+    const warning = events
+      .filter((event) => event.type === 'status')
+      .map((event) => event.payload as Record<string, unknown>)
+      .find((payload) => payload.status === 'plan_policy_warning')
+
+    expect(warning).toMatchObject({
+      status: 'plan_policy_warning',
+      phase: 'plan',
+      tool: 'project_actions',
+      detail: 'project_actions:run_install',
+    })
+  })
+
+  it('tags auto-lint fix invocations as build phase', async () => {
+    process.env.E2B_API_KEY = 'test-key'
+    process.env.E2B_TEMPLATE = 'test-template'
+    process.env.AUTO_LINT_AFTER_BUILD = 'true'
+    process.env.AUTO_LINT_FIX_MAX_PASSES = '1'
+
+    sandboxRunMock
+      .mockResolvedValueOnce({
+        exitCode: 1,
+        stdout: '',
+        stderr: 'lint failed',
+      })
+      .mockResolvedValueOnce({
+        exitCode: 0,
+        stdout: 'lint clean',
+        stderr: '',
+      })
+
+    invokeMock
+      .mockImplementationOnce(async ({ messages }: { messages: unknown[] }) => ({
+        messages: [
+          ...messages,
+          {
+            role: 'assistant',
+            content:
+              '```json\n{"summary":"Execute build","todos":[{"id":"1","title":"Build project"}]}\n```',
+          },
+        ],
+      }))
+      .mockImplementationOnce(
+        async ({ messages }: { messages: unknown[] }, config: MockInvokeConfig) => {
+          const callback = config.callbacks?.[0]
+          callback?.handleToolStart?.({ name: 'sandbox_cmd' }, { cmd: 'bun run build' })
+          callback?.handleToolEnd?.(
+            { ok: true, exitCode: 0, stdout: 'build ok', stderr: '' },
+            'tool-build-success'
+          )
+          return {
+            messages: [
+              ...messages,
+              {
+                role: 'assistant',
+                content: 'Build completed.',
+              },
+            ],
+          }
+        }
+      )
+      .mockImplementationOnce(async ({ messages }: { messages: unknown[] }) => ({
+        messages: [
+          ...messages,
+          {
+            role: 'assistant',
+            content: 'Fixed lint issues.',
+          },
+        ],
+      }))
+
+    const events: Array<{ type: 'token' | 'tool' | 'status'; payload: unknown }> = []
+    const { runAgent } = await import('../../agent/runAgent')
+    await runAgent({
+      prompt: 'Ship the feature',
+      runId: 'test-run-auto-lint',
+      workspaceBackend: 'e2b',
+      onEvent: (event) => {
+        events.push(event)
+      },
+    })
+
+    expect(sandboxCreateMock).toHaveBeenCalledTimes(1)
+    expect(invokeMock).toHaveBeenCalledTimes(3)
+    expect(sandboxRunMock).toHaveBeenCalledTimes(2)
+    expect(sandboxRunMock).toHaveBeenNthCalledWith(
+      1,
+      'bun run lint',
+      expect.objectContaining({ cwd: '/home/user' })
+    )
+    expect(sandboxRunMock).toHaveBeenNthCalledWith(
+      2,
+      'bun run lint',
+      expect.objectContaining({ cwd: '/home/user' })
+    )
+
+    const autoLintInvokeConfig = invokeMock.mock.calls[2]?.[1] as MockInvokeConfig | undefined
+    expect(autoLintInvokeConfig?.tags).toContain('phase:build')
+    expect(autoLintInvokeConfig?.metadata?.phase).toBe('build')
+
+    const statuses = events
+      .filter((event) => event.type === 'status')
+      .map((event) => (event.payload as Record<string, unknown>).status)
+    expect(statuses).toContain('auto_lint_started')
+    expect(statuses).toContain('auto_lint_fix_attempt')
+    expect(statuses).toContain('auto_lint_passed')
   })
 })

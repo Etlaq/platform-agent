@@ -25,7 +25,6 @@ type SandboxZipFile = {
 }
 
 const DEFAULT_EXCLUDE_DIRS = new Set([
-  '.git',
   '.aws',
   '.ssh',
   '.gnupg',
@@ -42,7 +41,6 @@ const DEFAULT_EXCLUDE_DIRS = new Set([
 ])
 
 const EXCLUDE_SANDBOX_DIRS = new Set([
-  '.git',
   '.aws',
   '.ssh',
   '.gnupg',
@@ -163,7 +161,7 @@ async function collectSandboxFiles(
     for (const ent of entries as any[]) {
       const name = String(ent.name ?? '')
       if (!name || name === '.' || name === '..') continue
-      if (name.startsWith('.') && ent.type === 'dir') continue
+      if (name.startsWith('.') && ent.type === 'dir' && name !== '.git') continue
       if (EXCLUDE_SANDBOX_DIRS.has(name)) continue
       if (isDeniedEnvFile(name, { allowEnvExample: true })) continue
       if (isDeniedSensitiveFile(name)) continue

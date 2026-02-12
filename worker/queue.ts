@@ -12,7 +12,7 @@ import {
   updateRunStatus,
 } from '../data/db'
 import { isRunAbortedError, runAgent } from '../agent/runAgent'
-import { syncRollbackManifest } from '../storage/storage'
+import { commitRunToGit } from './gitCommit'
 
 interface RunRequestedEvent {
   runId: string
@@ -147,6 +147,8 @@ async function processRun(runId: string) {
       })
 
       await completeRun(runId, result.output, {
+        provider: result.provider,
+        model: result.model,
         usage: result.usage,
         durationMs: result.durationMs,
       })
@@ -158,7 +160,30 @@ async function processRun(runId: string) {
       await setJobStatus(runId, 'succeeded')
 
       if (runAfterModel?.status !== 'cancelled') {
-        await syncRollbackManifest(runId).catch(() => undefined)
+        const gitCommit = await commitRunToGit({
+          runId,
+          workspaceBackend: runAfterModel?.workspaceBackend ?? latestRun.workspaceBackend ?? null,
+        })
+
+        if (gitCommit.ok) {
+          await emit(runId, 'status', {
+            status: 'git_commit',
+            runId,
+            commitSha: gitCommit.commitSha ?? null,
+          })
+        } else if (gitCommit.error) {
+          await emit(runId, 'status', {
+            status: 'git_commit_error',
+            runId,
+            error: gitCommit.error,
+          })
+        } else if (gitCommit.skipped) {
+          await emit(runId, 'status', {
+            status: 'git_commit_skipped',
+            runId,
+            reason: gitCommit.skipped,
+          })
+        }
       }
 
       return
