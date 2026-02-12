@@ -13,6 +13,10 @@ export interface RunRecord {
   workspaceBackend: 'host' | 'e2b' | null
   output: string | null
   error: string | null
+  inputTokens: number | null
+  outputTokens: number | null
+  totalTokens: number | null
+  durationMs: number | null
   createdAt: string
   updatedAt: string
 }
@@ -35,6 +39,10 @@ interface RunRow {
   workspace_backend: 'host' | 'e2b' | null
   output: string | null
   error: string | null
+  input_tokens: number | null
+  output_tokens: number | null
+  total_tokens: number | null
+  duration_ms: number | null
   created_at: Date | string
   updated_at: Date | string
 }
@@ -79,6 +87,10 @@ function toRunRecord(row: RunRow): RunRecord {
     workspaceBackend: row.workspace_backend ?? null,
     output: row.output ?? null,
     error: row.error ?? null,
+    inputTokens: row.input_tokens ?? null,
+    outputTokens: row.output_tokens ?? null,
+    totalTokens: row.total_tokens ?? null,
+    durationMs: row.duration_ms ?? null,
     createdAt: toIsoString(row.created_at),
     updatedAt: toIsoString(row.updated_at),
   }
@@ -209,10 +221,23 @@ export async function updateRunStatus(id: string, status: RunStatus) {
   `
 }
 
-export async function completeRun(id: string, output: string) {
+export async function completeRun(id: string, output: string, meta?: {
+  usage?: { inputTokens: number; outputTokens: number; totalTokens: number }
+  durationMs?: number
+}) {
+  const inputTokens = meta?.usage?.inputTokens ?? null
+  const outputTokens = meta?.usage?.outputTokens ?? null
+  const totalTokens = meta?.usage?.totalTokens ?? null
+  const durationMs = meta?.durationMs ?? null
   await db.exec`
     UPDATE runs
-    SET status = 'completed', output = ${output}, updated_at = NOW()
+    SET status = 'completed',
+        output = ${output},
+        input_tokens = ${inputTokens},
+        output_tokens = ${outputTokens},
+        total_tokens = ${totalTokens},
+        duration_ms = ${durationMs},
+        updated_at = NOW()
     WHERE id = ${id} AND status = 'running'
   `
 }

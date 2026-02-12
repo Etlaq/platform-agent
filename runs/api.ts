@@ -49,6 +49,8 @@ interface RunSummaryResponse {
   model: string | null
   output: string | null
   error: string | null
+  usage: { inputTokens: number; outputTokens: number; totalTokens: number } | null
+  durationMs: number | null
 }
 
 interface CancelRunResponse {
@@ -243,6 +245,10 @@ export const runById = api(
       model: run.model,
       output: run.output,
       error: run.error,
+      usage: run.inputTokens != null
+        ? { inputTokens: run.inputTokens, outputTokens: run.outputTokens!, totalTokens: run.totalTokens! }
+        : null,
+      durationMs: run.durationMs,
     }
   },
 )

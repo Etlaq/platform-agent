@@ -146,7 +146,10 @@ async function processRun(runId: string) {
         source: result.modelSource,
       })
 
-      await completeRun(runId, result.output)
+      await completeRun(runId, result.output, {
+        usage: result.usage,
+        durationMs: result.durationMs,
+      })
       await emit(runId, 'done', {
         output: result.output,
         usage: result.usage,
