@@ -147,7 +147,11 @@ async function processRun(runId: string) {
       })
 
       await completeRun(runId, result.output)
-      await emit(runId, 'done', { output: result.output })
+      await emit(runId, 'done', {
+        output: result.output,
+        usage: result.usage,
+        durationMs: result.durationMs,
+      })
       await setJobStatus(runId, 'succeeded')
 
       if (runAfterModel?.status !== 'cancelled') {

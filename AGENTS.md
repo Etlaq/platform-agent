@@ -64,6 +64,25 @@ Phase progress is streamed via SSE status events (`phase_started`, `plan_ready`,
 - **host** — Direct filesystem via `GuardedFilesystemBackend` + `RollbackManager`. All mutations tracked in `agent-runtime/rollbacks/<runId>/manifest.json`.
 - **e2b** — Isolated E2B sandbox via `E2BSandboxBackend` + `GuardedVirtualBackend`. Shell access via `sandbox_cmd` tool.
 
+### Sandbox Template (`sandbox-template/`)
+
+The starter Next.js project seeded into E2B sandboxes. Includes Next.js 16, React 19, Tailwind CSS 4 (OKLCH), shadcn/ui, RTL/LTR language toggle (Arabic-first), dark/light theme, and MongoDB/Mongoose. The agent's `AGENTS.project.md` template (`agent/templates/`) is written to match this stack. When modifying the sandbox template, keep the `AGENTS.md` and `CLAUDE.md` inside it in sync.
+
+#### Building E2B Templates
+
+The sandbox template includes E2B build scripts for creating sandbox images:
+
+```bash
+cd sandbox-template
+npm install               # installs e2b + dotenv (build tooling)
+npx tsx build.dev.ts      # build dev template (e2b-sandbox-nextjs-dev)
+npx tsx build.prod.ts     # build prod template (e2b-sandbox-nextjs)
+```
+
+- `template.ts` — Defines the E2B template: starts from a Bun 1.3 image, clones the Next.js starter from GitHub, runs `bun install`, and sets `bun run dev --turbo` as the start command.
+- `build.dev.ts` / `build.prod.ts` — Build the template with 4GB RAM / 2 CPUs via the E2B SDK. Requires `E2B_API_KEY` in env.
+- The resulting template ID is what you set as `E2B_TEMPLATE` in the agent's env.
+
 ### Composite Backend Routing
 
 `runAgent` constructs a `CompositeBackend` that routes virtual paths:
@@ -124,6 +143,8 @@ Four tables: `runs` (UUID PK, status lifecycle), `events` (ordered SSE stream pe
 - `worker/cron.ts` — Stale job requeue cron
 - `data/db.ts` — All SQL queries
 - `data/migrations/001_initial_schema.up.sql` — DB schema
+- `sandbox-template/` — Next.js starter project seeded into E2B sandboxes
+- `agent/templates/AGENTS.project.md` — AGENTS.md template written into sandboxes
 
 ## Environment
 
