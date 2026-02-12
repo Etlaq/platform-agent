@@ -246,7 +246,7 @@ export const runById = api(
       output: run.output,
       error: run.error,
       usage: run.inputTokens != null
-        ? { inputTokens: run.inputTokens, outputTokens: run.outputTokens!, totalTokens: run.totalTokens! }
+        ? { inputTokens: run.inputTokens, outputTokens: run.outputTokens ?? 0, totalTokens: run.totalTokens ?? 0 }
         : null,
       durationMs: run.durationMs,
     }
