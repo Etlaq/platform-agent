@@ -1,0 +1,176 @@
+'use client'
+
+import Image from 'next/image'
+import { Star, MapPin, ShoppingBag } from 'lucide-react'
+import { useLanguage } from '@/contexts/LanguageContext'
+import { useCart } from '@/contexts/CartContext'
+import { cn, formatPrice, formatPriceEn } from '@/lib/utils'
+import type { DateProduct } from '@/lib/data'
+
+interface ProductCardProps {
+  product: DateProduct
+  index: number
+}
+
+export function ProductCard({ product, index }: ProductCardProps) {
+  const { isArabic, t } = useLanguage()
+  const { addItem } = useCart()
+
+  const name = isArabic ? product.nameAr : product.nameEn
+  const origin = isArabic ? product.originAr : product.origin
+  const badge = isArabic ? product.badgeAr : product.badge
+  const price = isArabic
+    ? formatPrice(product.price)
+    : formatPriceEn(product.price)
+  const originalPrice = product.originalPrice
+    ? isArabic
+      ? formatPrice(product.originalPrice)
+      : formatPriceEn(product.originalPrice)
+    : null
+
+  const discountPercent = product.originalPrice
+    ? Math.round(
+        ((product.originalPrice - product.price) / product.originalPrice) * 100
+      )
+    : null
+
+  const staggerClass = `stagger-${Math.min(index + 1, 8)}`
+
+  return (
+    <article
+      className={cn(
+        'group relative flex flex-col',
+        'bg-ivory rounded-3xl overflow-hidden',
+        'border border-sand-200',
+        'transition-all duration-500 ease-out',
+        'hover:shadow-xl hover:shadow-sand-300/40',
+        'hover:-translate-y-1',
+        'animate-slide-up',
+        staggerClass
+      )}
+    >
+      {/* ── Image Area ── */}
+      <div className="relative aspect-square overflow-hidden bg-sand-100">
+        <Image
+          src={product.image}
+          alt={name}
+          fill
+          sizes="(max-width: 640px) 100vw, (max-width: 1024px) 50vw, 25vw"
+          className={cn(
+            'object-cover',
+            'transition-transform duration-700 ease-out',
+            'group-hover:scale-105'
+          )}
+        />
+
+        {/* Subtle vignette overlay */}
+        <div className="absolute inset-0 bg-gradient-to-t from-espresso-900/10 via-transparent to-transparent pointer-events-none" />
+
+        {/* Badge — top-start */}
+        {badge && (
+          <span
+            className={cn(
+              'absolute top-3 rounded-full',
+              'bg-amber-gold text-espresso-900',
+              'px-3 py-1 text-xs font-semibold',
+              'shadow-md',
+              'start-3'
+            )}
+          >
+            {badge}
+          </span>
+        )}
+
+        {/* Discount Badge — top-end */}
+        {discountPercent && (
+          <span
+            className={cn(
+              'absolute top-3 rounded-full',
+              'bg-ruby text-cream',
+              'px-2.5 py-1 text-xs font-bold',
+              'shadow-md',
+              'end-3'
+            )}
+          >
+            {isArabic ? `${discountPercent}%-` : `-${discountPercent}%`}
+          </span>
+        )}
+      </div>
+
+      {/* ── Content ── */}
+      <div className="flex flex-1 flex-col p-5 gap-3">
+        {/* Product Name */}
+        <h3
+          className={cn(
+            'font-display text-lg leading-snug text-espresso-900',
+            'line-clamp-2',
+            'group-hover:text-amber-deep transition-colors duration-300'
+          )}
+        >
+          {name}
+        </h3>
+
+        {/* Origin */}
+        <div className="flex items-center gap-1.5 text-sand-500">
+          <MapPin className="size-3.5 shrink-0" />
+          <span className="text-sm">{origin}</span>
+        </div>
+
+        {/* Star Rating */}
+        <div className="flex items-center gap-2">
+          <div className="flex items-center gap-0.5">
+            {Array.from({ length: 5 }).map((_, i) => (
+              <Star
+                key={i}
+                className={cn(
+                  'size-3.5',
+                  i < Math.floor(product.rating)
+                    ? 'fill-amber-gold text-amber-gold'
+                    : i < product.rating
+                      ? 'fill-amber-gold/50 text-amber-gold'
+                      : 'fill-sand-200 text-sand-200'
+                )}
+              />
+            ))}
+          </div>
+          <span className="text-xs text-sand-400">
+            ({product.reviews} {t('product.reviews')})
+          </span>
+        </div>
+
+        {/* Spacer — push price & button to bottom */}
+        <div className="mt-auto" />
+
+        {/* Price */}
+        <div className="flex items-baseline gap-2.5">
+          <span className="text-xl font-bold text-amber-deep">{price}</span>
+          {originalPrice && (
+            <span className="text-sm text-sand-400 line-through">
+              {originalPrice}
+            </span>
+          )}
+        </div>
+
+        {/* Add to Cart */}
+        <button
+          onClick={() => addItem(product)}
+          disabled={!product.inStock}
+          className={cn(
+            'w-full flex items-center justify-center gap-2',
+            'bg-amber-gold text-espresso-900',
+            'rounded-xl py-3 px-4',
+            'font-semibold text-sm',
+            'transition-all duration-300',
+            'hover:brightness-110 hover:shadow-lg hover:shadow-amber-gold/25',
+            'active:scale-[0.98]',
+            'disabled:opacity-50 disabled:cursor-not-allowed disabled:hover:brightness-100',
+            'cursor-pointer'
+          )}
+        >
+          <ShoppingBag className="size-4" />
+          {t('product.addToCart')}
+        </button>
+      </div>
+    </article>
+  )
+}

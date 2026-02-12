@@ -1,0 +1,84 @@
+'use client'
+
+import { ArrowLeft, ArrowRight } from 'lucide-react'
+import { useLanguage } from '@/contexts/LanguageContext'
+import { products } from '@/lib/data'
+import { cn } from '@/lib/utils'
+import { ProductCard } from '@/components/ProductCard'
+
+const featuredProducts = products.slice(0, 4)
+
+export function FeaturedProducts() {
+  const { isArabic, t } = useLanguage()
+
+  const ArrowIcon = isArabic ? ArrowLeft : ArrowRight
+
+  return (
+    <section className="py-24 px-6">
+      <div className="max-w-7xl mx-auto">
+        {/* ── Section Header ── */}
+        <div className="text-center mb-16 animate-slide-up">
+          <h2
+            className={cn(
+              'font-display text-4xl md:text-5xl text-espresso-900',
+              'mb-4'
+            )}
+          >
+            {t('featured.title')}
+          </h2>
+
+          {/* Decorative underline — dots & lines */}
+          <div className="flex items-center justify-center gap-3 mb-5">
+            <span className="h-px w-12 bg-sand-300" />
+            <span className="block size-2 rounded-full bg-amber-gold" />
+            <span className="h-0.5 w-20 bg-amber-gold rounded-full" />
+            <span className="block size-2 rounded-full bg-amber-gold" />
+            <span className="h-px w-12 bg-sand-300" />
+          </div>
+
+          <p className="text-sand-500 text-lg max-w-md mx-auto">
+            {t('featured.subtitle')}
+          </p>
+        </div>
+
+        {/* ── Products Grid ── */}
+        <div
+          className={cn(
+            'grid gap-6',
+            'grid-cols-1 sm:grid-cols-2 lg:grid-cols-4'
+          )}
+        >
+          {featuredProducts.map((product, index) => (
+            <ProductCard key={product.id} product={product} index={index} />
+          ))}
+        </div>
+
+        {/* ── View All Button ── */}
+        <div className="flex justify-center mt-14 animate-slide-up stagger-6">
+          <button
+            className={cn(
+              'group/btn flex items-center gap-2.5',
+              'border-2 border-amber-deep text-amber-deep',
+              'rounded-full px-8 py-3.5',
+              'font-semibold text-sm',
+              'transition-all duration-300',
+              'hover:bg-amber-deep hover:text-cream',
+              'active:scale-[0.97]',
+              'cursor-pointer'
+            )}
+          >
+            {t('product.viewAll')}
+            <ArrowIcon
+              className={cn(
+                'size-4 transition-transform duration-300',
+                isArabic
+                  ? 'group-hover/btn:-translate-x-1'
+                  : 'group-hover/btn:translate-x-1'
+              )}
+            />
+          </button>
+        </div>
+      </div>
+    </section>
+  )
+}

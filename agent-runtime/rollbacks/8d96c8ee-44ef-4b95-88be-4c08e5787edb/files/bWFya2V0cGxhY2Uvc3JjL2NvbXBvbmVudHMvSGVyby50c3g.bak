@@ -1,0 +1,627 @@
+'use client'
+
+import { useLanguage } from '@/contexts/LanguageContext'
+import { motion } from 'motion/react'
+import { cn } from '@/lib/utils'
+
+/* ------------------------------------------------------------------ */
+/*  Animation variants                                                 */
+/* ------------------------------------------------------------------ */
+
+const containerVariants = {
+  hidden: {},
+  visible: {
+    transition: {
+      staggerChildren: 0.15,
+      delayChildren: 0.3,
+    },
+  },
+}
+
+const itemVariants = {
+  hidden: { opacity: 0, y: 32, filter: 'blur(8px)' },
+  visible: {
+    opacity: 1,
+    y: 0,
+    filter: 'blur(0px)',
+    transition: {
+      type: 'spring' as const,
+      stiffness: 80,
+      damping: 20,
+      mass: 0.8,
+    },
+  },
+}
+
+const floatVariants = (delay: number, duration: number = 6, y: number = 12) => ({
+  initial: { y: 0, opacity: 0 },
+  animate: {
+    y: [-y, y, -y],
+    opacity: [0.6, 1, 0.6],
+    transition: {
+      y: { duration, repeat: Infinity, ease: 'easeInOut', delay },
+      opacity: { duration: duration * 0.8, repeat: Infinity, ease: 'easeInOut', delay },
+    },
+  },
+})
+
+const rotateFloat = (delay: number) => ({
+  initial: { rotate: 0, opacity: 0 },
+  animate: {
+    rotate: [0, 180, 360],
+    opacity: [0.15, 0.3, 0.15],
+    transition: {
+      rotate: { duration: 40, repeat: Infinity, ease: 'linear', delay },
+      opacity: { duration: 8, repeat: Infinity, ease: 'easeInOut', delay },
+    },
+  },
+})
+
+/* ------------------------------------------------------------------ */
+/*  Decorative SVG components – geometric arabesque motifs             */
+/* ------------------------------------------------------------------ */
+
+/** Eight-pointed star (Rub el Hizb) – two overlapping rotated squares with inner circle */
+function RubElHizb({ className }: { className?: string }) {
+  return (
+    <svg
+      viewBox="0 0 100 100"
+      fill="none"
+      xmlns="http://www.w3.org/2000/svg"
+      className={className}
+      aria-hidden="true"
+    >
+      {/* Outer square */}
+      <rect
+        x="14"
+        y="14"
+        width="72"
+        height="72"
+        rx="1.5"
+        stroke="currentColor"
+        strokeWidth="0.8"
+        opacity="0.5"
+      />
+      {/* Rotated square – forms the eight points */}
+      <rect
+        x="14"
+        y="14"
+        width="72"
+        height="72"
+        rx="1.5"
+        stroke="currentColor"
+        strokeWidth="0.8"
+        opacity="0.5"
+        transform="rotate(45 50 50)"
+      />
+      {/* Inner circle */}
+      <circle
+        cx="50"
+        cy="50"
+        r="20"
+        stroke="currentColor"
+        strokeWidth="0.6"
+        opacity="0.35"
+      />
+      {/* Inner ring */}
+      <circle
+        cx="50"
+        cy="50"
+        r="12"
+        stroke="currentColor"
+        strokeWidth="0.4"
+        opacity="0.2"
+      />
+      {/* Centre dot */}
+      <circle cx="50" cy="50" r="3" fill="currentColor" opacity="0.4" />
+      {/* Radial lines from centre to star points */}
+      {[0, 45, 90, 135, 180, 225, 270, 315].map((angle) => (
+        <line
+          key={angle}
+          x1="50"
+          y1="50"
+          x2={50 + 35 * Math.cos((angle * Math.PI) / 180)}
+          y2={50 + 35 * Math.sin((angle * Math.PI) / 180)}
+          stroke="currentColor"
+          strokeWidth="0.3"
+          opacity="0.15"
+        />
+      ))}
+    </svg>
+  )
+}
+
+/** Mihrab / pointed arch – large background decoration */
+function MihrabArch({ className }: { className?: string }) {
+  return (
+    <svg
+      viewBox="0 0 600 900"
+      fill="none"
+      xmlns="http://www.w3.org/2000/svg"
+      className={className}
+      aria-hidden="true"
+    >
+      {/* Outer pointed arch */}
+      <path
+        d="M300 40 C120 40, 40 240, 40 460 C40 640, 150 780, 300 830 C450 780, 560 640, 560 460 C560 240, 480 40, 300 40Z"
+        stroke="currentColor"
+        strokeWidth="1"
+        opacity="0.08"
+      />
+      {/* Inner arch */}
+      <path
+        d="M300 90 C160 90, 90 260, 90 440 C90 590, 180 710, 300 755 C420 710, 510 590, 510 440 C510 260, 440 90, 300 90Z"
+        stroke="currentColor"
+        strokeWidth="0.7"
+        opacity="0.06"
+      />
+      {/* Innermost arch */}
+      <path
+        d="M300 140 C200 140, 140 280, 140 420 C140 540, 210 640, 300 680 C390 640, 460 540, 460 420 C460 280, 400 140, 300 140Z"
+        stroke="currentColor"
+        strokeWidth="0.5"
+        opacity="0.04"
+      />
+      {/* Vertical axis */}
+      <line
+        x1="300"
+        y1="80"
+        x2="300"
+        y2="800"
+        stroke="currentColor"
+        strokeWidth="0.4"
+        opacity="0.05"
+      />
+      {/* Horizontal cross lines */}
+      {[250, 340, 430, 520, 610, 700].map((y) => (
+        <line
+          key={y}
+          x1="100"
+          y1={y}
+          x2="500"
+          y2={y}
+          stroke="currentColor"
+          strokeWidth="0.3"
+          opacity="0.035"
+        />
+      ))}
+      {/* Radiating curves from apex */}
+      {[-50, -25, 0, 25, 50].map((angle) => (
+        <path
+          key={angle}
+          d={`M300 120 Q${300 + angle * 3.5} ${320 + Math.abs(angle)}, ${300 + angle * 5.5} 620`}
+          stroke="currentColor"
+          strokeWidth="0.5"
+          opacity="0.04"
+          fill="none"
+        />
+      ))}
+      {/* Decorative circles at intersections */}
+      <circle cx="300" cy="250" r="6" stroke="currentColor" strokeWidth="0.4" opacity="0.06" />
+      <circle cx="300" cy="430" r="8" stroke="currentColor" strokeWidth="0.4" opacity="0.05" />
+      <circle cx="300" cy="610" r="5" stroke="currentColor" strokeWidth="0.4" opacity="0.04" />
+    </svg>
+  )
+}
+
+/** Small diamond shape for floating decorations */
+function Diamond({ className }: { className?: string }) {
+  return (
+    <svg
+      viewBox="0 0 20 20"
+      fill="currentColor"
+      xmlns="http://www.w3.org/2000/svg"
+      className={className}
+      aria-hidden="true"
+    >
+      <path d="M10 0 L14 10 L10 20 L6 10 Z" opacity="0.6" />
+    </svg>
+  )
+}
+
+/** Four-pointed star sparkle */
+function Sparkle({ className }: { className?: string }) {
+  return (
+    <svg
+      viewBox="0 0 24 24"
+      fill="currentColor"
+      xmlns="http://www.w3.org/2000/svg"
+      className={className}
+      aria-hidden="true"
+    >
+      <path d="M12 0 L13.5 9 L24 12 L13.5 15 L12 24 L10.5 15 L0 12 L10.5 9 Z" opacity="0.5" />
+    </svg>
+  )
+}
+
+/** Tiny six-pointed star for subtle accents */
+function MicroStar({ className }: { className?: string }) {
+  return (
+    <svg
+      viewBox="0 0 16 16"
+      fill="currentColor"
+      xmlns="http://www.w3.org/2000/svg"
+      className={className}
+      aria-hidden="true"
+    >
+      <path d="M8 0 L9.5 6 L16 8 L9.5 10 L8 16 L6.5 10 L0 8 L6.5 6 Z" opacity="0.4" />
+    </svg>
+  )
+}
+
+/* ------------------------------------------------------------------ */
+/*  Scroll indicator – mouse icon with animated dot                    */
+/* ------------------------------------------------------------------ */
+function ScrollIndicator() {
+  return (
+    <motion.div
+      className="absolute bottom-8 start-1/2 -translate-x-1/2 flex flex-col items-center gap-2"
+      initial={{ opacity: 0, y: 10 }}
+      animate={{ opacity: 1, y: 0 }}
+      transition={{ delay: 2.2, duration: 0.8 }}
+    >
+      {/* Mouse outline */}
+      <div className="relative flex h-10 w-6 items-start justify-center rounded-full border border-sand-400/30 pt-2">
+        <motion.span
+          className="block h-2 w-[3px] rounded-full bg-amber-gold"
+          animate={{ y: [0, 8, 0], opacity: [1, 0.3, 1] }}
+          transition={{ duration: 1.8, repeat: Infinity, ease: 'easeInOut' }}
+        />
+      </div>
+      {/* Chevron */}
+      <motion.div
+        className="flex flex-col items-center -space-y-1"
+        animate={{ y: [0, 4, 0], opacity: [0.5, 1, 0.5] }}
+        transition={{ duration: 1.8, repeat: Infinity, ease: 'easeInOut', delay: 0.2 }}
+      >
+        <svg width="12" height="6" viewBox="0 0 12 6" className="text-sand-400/50">
+          <path d="M1 1 L6 5 L11 1" stroke="currentColor" strokeWidth="1" fill="none" strokeLinecap="round" />
+        </svg>
+      </motion.div>
+    </motion.div>
+  )
+}
+
+/* ================================================================== */
+/*  HERO SECTION                                                       */
+/* ================================================================== */
+
+export default function Hero() {
+  const { t, isArabic } = useLanguage()
+
+  return (
+    <section
+      className={cn(
+        'relative min-h-screen flex items-center justify-center overflow-hidden bg-espresso-900',
+      )}
+    >
+      {/* ── Layered background atmosphere ── */}
+      <div
+        className="absolute inset-0 pointer-events-none"
+        style={{
+          background: [
+            'radial-gradient(ellipse 80% 60% at 50% 40%, rgba(196,149,106,0.06) 0%, transparent 70%)',
+            'radial-gradient(ellipse 50% 80% at 30% 70%, rgba(139,90,43,0.04) 0%, transparent 60%)',
+            'radial-gradient(ellipse 40% 40% at 75% 25%, rgba(196,149,106,0.03) 0%, transparent 50%)',
+          ].join(', '),
+        }}
+      />
+
+      {/* ── Geometric pattern overlay (subtle repeating grid) ── */}
+      <div
+        className="absolute inset-0 pointer-events-none opacity-[0.025]"
+        style={{
+          backgroundImage: `url("data:image/svg+xml,%3Csvg width='60' height='60' viewBox='0 0 60 60' xmlns='http://www.w3.org/2000/svg'%3E%3Cpath d='M30 0 L35 25 L60 30 L35 35 L30 60 L25 35 L0 30 L25 25Z' fill='%23C4956A' fill-opacity='0.4'/%3E%3C/svg%3E")`,
+          backgroundSize: '60px 60px',
+        }}
+      />
+
+      {/* ── Large decorative mihrab arch ── */}
+      <motion.div
+        className="absolute top-1/2 start-1/2 -translate-x-1/2 -translate-y-[48%] h-[120%] w-auto aspect-[2/3] text-amber-gold pointer-events-none select-none"
+        initial={{ opacity: 0, scale: 0.9 }}
+        animate={{ opacity: 1, scale: 1 }}
+        transition={{ duration: 2, ease: 'easeOut' }}
+      >
+        <MihrabArch className="h-full w-full" />
+      </motion.div>
+
+      {/* ── Floating Rub el Hizb stars ── */}
+      <motion.div
+        className="absolute top-[6%] end-[18%] w-20 h-20 md:w-28 md:h-28 text-amber-gold/20"
+        {...rotateFloat(0)}
+      >
+        <RubElHizb className="w-full h-full" />
+      </motion.div>
+      <motion.div
+        className="absolute bottom-[14%] start-[5%] w-14 h-14 md:w-20 md:h-20 text-amber-gold/15"
+        {...rotateFloat(3)}
+      >
+        <RubElHizb className="w-full h-full" />
+      </motion.div>
+      <motion.div
+        className="absolute top-[45%] start-[3%] w-10 h-10 text-amber-gold/10 hidden md:block"
+        {...rotateFloat(7)}
+      >
+        <RubElHizb className="w-full h-full" />
+      </motion.div>
+
+      {/* ── Floating diamonds & sparkles ── */}
+      <motion.div
+        className="absolute top-[14%] start-[10%] w-3 h-3 text-amber-gold"
+        {...floatVariants(0, 5, 10)}
+      >
+        <Diamond className="w-full h-full" />
+      </motion.div>
+      <motion.div
+        className="absolute top-[20%] end-[10%] w-4 h-4 text-amber-gold"
+        {...floatVariants(1.5, 7, 14)}
+      >
+        <Sparkle className="w-full h-full" />
+      </motion.div>
+      <motion.div
+        className="absolute bottom-[28%] start-[14%] w-2.5 h-2.5 text-amber-gold/70"
+        {...floatVariants(3, 6, 8)}
+      >
+        <Diamond className="w-full h-full" />
+      </motion.div>
+      <motion.div
+        className="absolute top-[58%] end-[7%] w-3 h-3 text-amber-gold/60"
+        {...floatVariants(2, 8, 12)}
+      >
+        <Sparkle className="w-full h-full" />
+      </motion.div>
+      <motion.div
+        className="absolute bottom-[38%] end-[20%] w-2 h-2 text-amber-gold/50"
+        {...floatVariants(4, 5.5, 6)}
+      >
+        <Diamond className="w-full h-full" />
+      </motion.div>
+      <motion.div
+        className="absolute top-[32%] start-[22%] w-2 h-2 text-amber-gold/40 hidden md:block"
+        {...floatVariants(5, 9, 10)}
+      >
+        <MicroStar className="w-full h-full" />
+      </motion.div>
+      <motion.div
+        className="absolute bottom-[45%] end-[28%] w-1.5 h-1.5 text-amber-gold/30 hidden md:block"
+        {...floatVariants(6.5, 7, 8)}
+      >
+        <MicroStar className="w-full h-full" />
+      </motion.div>
+
+      {/* ── Horizontal gold accent lines ── */}
+      <motion.div
+        className="absolute top-[30%] start-0 h-px w-32 md:w-48 bg-gradient-to-e from-transparent via-amber-gold/20 to-transparent"
+        initial={{ opacity: 0, x: -40 }}
+        animate={{ opacity: 1, x: 0 }}
+        transition={{ delay: 1.5, duration: 1.2 }}
+      />
+      <motion.div
+        className="absolute bottom-[35%] end-0 h-px w-24 md:w-40 bg-gradient-to-s from-transparent via-amber-gold/15 to-transparent"
+        initial={{ opacity: 0, x: 40 }}
+        animate={{ opacity: 1, x: 0 }}
+        transition={{ delay: 1.8, duration: 1.2 }}
+      />
+
+      {/* ── Main content ── */}
+      <motion.div
+        className="relative z-10 flex flex-col items-center text-center px-6 max-w-4xl mx-auto"
+        variants={containerVariants}
+        initial="hidden"
+        animate="visible"
+      >
+        {/* Badge pill */}
+        <motion.div variants={itemVariants} className="mb-6 md:mb-8">
+          <span
+            className={cn(
+              'inline-flex items-center gap-3 rounded-full',
+              'border border-amber-gold/25 bg-amber-gold/[0.06] backdrop-blur-sm',
+              'px-5 py-2 text-amber-gold text-xs md:text-sm',
+              'font-[family-name:var(--font-body)] tracking-wide',
+            )}
+          >
+            <span className="block h-px w-5 bg-gradient-to-e from-transparent to-amber-gold/60" />
+            {t('hero.badge')}
+            <span className="block h-px w-5 bg-gradient-to-s from-transparent to-amber-gold/60" />
+          </span>
+        </motion.div>
+
+        {/* Subtitle with decorative lines */}
+        <motion.div
+          variants={itemVariants}
+          className="flex items-center gap-4 mb-6 md:mb-8"
+        >
+          <span className="block h-px w-8 md:w-14 bg-gradient-to-e from-transparent to-amber-gold/70" />
+          <span
+            className={cn(
+              'text-amber-gold text-[10px] md:text-xs uppercase tracking-[0.3em]',
+              'font-[family-name:var(--font-body)] font-medium',
+            )}
+          >
+            {t('hero.subtitle')}
+          </span>
+          <span className="block h-px w-8 md:w-14 bg-gradient-to-s from-transparent to-amber-gold/70" />
+        </motion.div>
+
+        {/* Main title */}
+        <motion.h1
+          variants={itemVariants}
+          className={cn(
+            'text-cream text-4xl sm:text-5xl md:text-6xl lg:text-7xl',
+            'font-[family-name:var(--font-display)] leading-[1.15] md:leading-[1.1]',
+            'max-w-3xl',
+          )}
+          style={{
+            textShadow: '0 2px 40px rgba(196,149,106,0.1), 0 0 80px rgba(196,149,106,0.05)',
+          }}
+        >
+          {t('hero.title')}
+        </motion.h1>
+
+        {/* Description */}
+        <motion.p
+          variants={itemVariants}
+          className={cn(
+            'mt-6 md:mt-8 text-sand-300 text-base md:text-lg',
+            'leading-relaxed md:leading-loose max-w-2xl',
+            'font-[family-name:var(--font-body)]',
+          )}
+        >
+          {t('hero.description')}
+        </motion.p>
+
+        {/* CTA buttons */}
+        <motion.div
+          variants={itemVariants}
+          className="mt-10 md:mt-12 flex flex-col sm:flex-row items-center gap-4 sm:gap-5"
+        >
+          {/* Primary CTA – gold with shimmer */}
+          <motion.button
+            type="button"
+            className={cn(
+              'group relative inline-flex items-center justify-center overflow-hidden',
+              'rounded-full bg-amber-gold px-10 py-4',
+              'text-espresso-900 font-semibold text-base',
+              'font-[family-name:var(--font-body)]',
+              'transition-all duration-300',
+              'hover:bg-amber-warm hover:shadow-[0_8px_40px_rgba(196,149,106,0.4)]',
+              'active:scale-[0.97]',
+            )}
+            whileHover={{ scale: 1.04 }}
+            whileTap={{ scale: 0.97 }}
+          >
+            <span className="relative z-10 flex items-center gap-2">
+              {t('hero.cta')}
+              <svg
+                width="16"
+                height="16"
+                viewBox="0 0 16 16"
+                fill="none"
+                className={cn(
+                  'transition-transform duration-300 group-hover:translate-x-0.5',
+                  isArabic && 'rotate-180 group-hover:-translate-x-0.5',
+                )}
+              >
+                <path
+                  d="M3 8h10M9 4l4 4-4 4"
+                  stroke="currentColor"
+                  strokeWidth="1.5"
+                  strokeLinecap="round"
+                  strokeLinejoin="round"
+                />
+              </svg>
+            </span>
+            {/* Shimmer sweep on hover */}
+            <span
+              className={cn(
+                'absolute inset-0 z-0',
+                'translate-x-[-100%] group-hover:translate-x-[100%]',
+                'transition-transform duration-700 ease-in-out',
+                'bg-gradient-to-r from-transparent via-white/25 to-transparent',
+              )}
+            />
+          </motion.button>
+
+          {/* Secondary CTA – outlined */}
+          <motion.button
+            type="button"
+            className={cn(
+              'inline-flex items-center justify-center',
+              'rounded-full border border-cream/30 px-10 py-4',
+              'text-cream font-medium text-base',
+              'font-[family-name:var(--font-body)]',
+              'transition-all duration-300',
+              'hover:border-amber-gold hover:text-amber-gold hover:bg-amber-gold/5',
+              'active:scale-[0.97]',
+            )}
+            whileHover={{ scale: 1.03 }}
+            whileTap={{ scale: 0.97 }}
+          >
+            {t('hero.cta2')}
+          </motion.button>
+        </motion.div>
+
+        {/* Stats row */}
+        <motion.div
+          variants={itemVariants}
+          className={cn(
+            'mt-12 md:mt-16 flex items-center justify-center',
+            'divide-x divide-sand-500/20',
+            isArabic && 'divide-x-reverse',
+          )}
+        >
+          {(['hero.stat1', 'hero.stat2', 'hero.stat3'] as const).map((key, i) => {
+            const text = t(key)
+            // Split the stat into number and label parts
+            // e.g. "+٥٠ ألف طلب" or "50K+ Orders"
+            const parts = text.match(/^([^\s]+(?:\s[^\s]+)?)\s+(.+)$/)
+            const value = parts ? parts[1] : text
+            const label = parts ? parts[2] : ''
+
+            return (
+              <motion.div
+                key={key}
+                className={cn(
+                  'flex flex-col items-center px-5 sm:px-8 md:px-10',
+                  i === 0 && 'ps-0',
+                  i === 2 && 'pe-0',
+                )}
+                initial={{ opacity: 0, y: 16 }}
+                animate={{ opacity: 1, y: 0 }}
+                transition={{
+                  delay: 1.6 + i * 0.15,
+                  type: 'spring',
+                  stiffness: 80,
+                  damping: 18,
+                }}
+              >
+                <span
+                  className={cn(
+                    'text-amber-gold text-lg sm:text-xl md:text-2xl font-bold',
+                    'font-[family-name:var(--font-display)]',
+                  )}
+                >
+                  {value}
+                </span>
+                {label && (
+                  <span
+                    className={cn(
+                      'text-sand-400 text-[10px] sm:text-xs mt-1',
+                      'font-[family-name:var(--font-body)] tracking-wide uppercase',
+                    )}
+                  >
+                    {label}
+                  </span>
+                )}
+                {!label && (
+                  <span
+                    className={cn(
+                      'text-sand-400 text-[10px] sm:text-xs mt-1',
+                      'font-[family-name:var(--font-body)] tracking-wide',
+                    )}
+                  >
+                    {text}
+                  </span>
+                )}
+              </motion.div>
+            )
+          })}
+        </motion.div>
+      </motion.div>
+
+      {/* ── Bottom gradient fade ── */}
+      <div className="absolute inset-x-0 bottom-0 h-48 bg-gradient-to-t from-espresso-900 via-espresso-900/60 to-transparent pointer-events-none" />
+
+      {/* ── Top vignette ── */}
+      <div className="absolute inset-x-0 top-0 h-32 bg-gradient-to-b from-espresso-900/50 to-transparent pointer-events-none" />
+
+      {/* ── Side vignettes ── */}
+      <div className="absolute inset-y-0 start-0 w-32 md:w-48 bg-gradient-to-e from-espresso-900/40 to-transparent pointer-events-none" />
+      <div className="absolute inset-y-0 end-0 w-32 md:w-48 bg-gradient-to-s from-espresso-900/40 to-transparent pointer-events-none" />
+
+      {/* ── Scroll indicator ── */}
+      <ScrollIndicator />
+    </section>
+  )
+}

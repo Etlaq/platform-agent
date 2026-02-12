@@ -1,0 +1,160 @@
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
+
+const invokeMock = vi.fn()
+const createDeepAgentMock = vi.fn(() => ({ invoke: invokeMock }))
+
+vi.mock('deepagents', () => {
+  class FilesystemBackend {
+    constructor(_params: unknown) {}
+  }
+
+  class StateBackend {
+    constructor(_runtime: unknown) {}
+    lsInfo() {}
+    read() {}
+    readRaw() {}
+    write() {}
+    edit() {}
+    globInfo() {}
+    grepRaw() {}
+    uploadFiles() {}
+    downloadFiles() {}
+  }
+
+  class CompositeBackend {
+    constructor(_base: unknown, _mounts: unknown) {}
+  }
+
+  return {
+    FilesystemBackend,
+    StateBackend,
+    CompositeBackend,
+    createDeepAgent: createDeepAgentMock,
+  }
+})
+
+vi.mock('../../agent/provider', () => ({
+  resolveModelSelection: () => ({
+    provider: 'openai',
+    model: 'gpt-5',
+    source: 'default',
+  }),
+}))
+
+vi.mock('../../agent/runtime/modelFactory', () => ({
+  normalizeModelName: (_provider: string, model: string) => model,
+  createModel: () => ({ id: 'mock-model' }),
+}))
+
+vi.mock('../../agent/runtime/mcp', () => ({
+  loadMcpTools: async () => ({ tools: [], client: null }),
+}))
+
+describe('runAgent two-phase flow', () => {
+  const originalEnv = { ...process.env }
+
+  beforeEach(() => {
+    invokeMock.mockReset()
+    createDeepAgentMock.mockClear()
+    process.env = {
+      ...originalEnv,
+      SEED_AGENTS_MD: 'false',
+      ALLOW_HOST_INSTALLS: 'false',
+    }
+  })
+
+  afterEach(() => {
+    process.env = { ...originalEnv }
+  })
+
+  it('parses JSON plan output', async () => {
+    const { parsePlanSnapshot } = await import('../../agent/runAgent')
+    const parsed = parsePlanSnapshot(
+      [
+        'Plan output',
+        '```json',
+        '{"summary":"Ship feature","todos":[{"id":"1","title":"Add API"},{"id":"2","title":"Add tests"}]}',
+        '```',
+      ].join('\n')
+    )
+
+    expect(parsed).not.toBeNull()
+    expect(parsed?.summary).toBe('Ship feature')
+    expect(parsed?.todos).toHaveLength(2)
+    expect(parsed?.todos[0]?.title).toBe('Add API')
+  })
+
+  it('falls back to markdown todo parsing when JSON is absent', async () => {
+    const { parsePlanSnapshot } = await import('../../agent/runAgent')
+    const parsed = parsePlanSnapshot(
+      [
+        'Implementation plan',
+        '- add endpoint schema',
+        '- wire queue worker',
+        '1. add tests',
+      ].join('\n')
+    )
+
+    expect(parsed).not.toBeNull()
+    expect(parsed?.todos).toHaveLength(3)
+  })
+
+  it('runs plan then build and emits phase status events', async () => {
+    invokeMock
+      .mockImplementationOnce(async ({ messages }: { messages: unknown[] }) => ({
+        messages: [
+          ...messages,
+          {
+            role: 'assistant',
+            content:
+              '```json\n{"summary":"Implement change","todos":[{"id":"1","title":"Update service"},{"id":"2","title":"Add tests"}]}\n```',
+          },
+        ],
+      }))
+      .mockImplementationOnce(async ({ messages }: { messages: unknown[] }) => ({
+        messages: [
+          ...messages,
+          {
+            role: 'assistant',
+            content: 'Implemented the requested change.',
+          },
+        ],
+      }))
+
+    const events: Array<{ type: 'token' | 'tool' | 'status'; payload: unknown }> = []
+    const { runAgent } = await import('../../agent/runAgent')
+    const result = await runAgent({
+      prompt: 'Implement the feature',
+      runId: 'test-run-id',
+      onEvent: (event) => {
+        events.push(event)
+      },
+    })
+
+    expect(createDeepAgentMock).toHaveBeenCalledTimes(1)
+    expect(invokeMock).toHaveBeenCalledTimes(2)
+
+    const firstCallMessages = invokeMock.mock.calls[0]?.[0]?.messages as Array<{ content?: string }>
+    const secondCallMessages = invokeMock.mock.calls[1]?.[0]?.messages as Array<{ content?: string }>
+
+    expect(firstCallMessages[0]?.content ?? '').toContain('phase 1 (plan)')
+    expect(secondCallMessages[secondCallMessages.length - 1]?.content ?? '').toContain('phase 2 (build)')
+
+    const statusPayloads = events
+      .filter((event) => event.type === 'status')
+      .map((event) => event.payload as Record<string, unknown>)
+    const statuses = statusPayloads.map((payload) => payload.status)
+
+    expect(statuses).toContain('phase_started')
+    expect(statuses).toContain('plan_ready')
+    expect(statuses).toContain('phase_transition')
+    expect(statuses).toContain('phase_completed')
+
+    const planReady = statusPayloads.find((payload) => payload.status === 'plan_ready')
+    expect(planReady?.summary).toBe('Implement change')
+    expect(Array.isArray(planReady?.todos)).toBe(true)
+
+    expect(result.plan?.summary).toBe('Implement change')
+    expect(result.output).toContain('Implemented the requested change.')
+  })
+})

@@ -1,0 +1,108 @@
+'use client'
+
+import { useState } from 'react'
+import { useLanguage } from '@/contexts/LanguageContext'
+import { Send } from 'lucide-react'
+import { cn } from '@/lib/utils'
+
+/* ═══════════════════════════════════════════════════════════════════════
+   NEWSLETTER — Email signup section
+   ═══════════════════════════════════════════════════════════════════════ */
+
+export function Newsletter() {
+  const { t, isArabic } = useLanguage()
+  const [email, setEmail] = useState('')
+  const [submitted, setSubmitted] = useState(false)
+
+  const handleSubmit = (e: React.FormEvent) => {
+    e.preventDefault()
+    if (!email.trim()) return
+    setSubmitted(true)
+  }
+
+  return (
+    <section className="py-20 px-6 bg-sand-100">
+      <div className="mx-auto max-w-2xl text-center">
+        {/* ── Decorative diamond ── */}
+        <div className="mb-6 flex items-center justify-center gap-3" aria-hidden="true">
+          <span className="h-px w-10 bg-gradient-to-r from-transparent to-amber-gold/50" />
+          <span className="w-2 h-2 rotate-45 bg-amber-gold" />
+          <span className="h-px w-10 bg-gradient-to-l from-transparent to-amber-gold/50" />
+        </div>
+
+        {/* ── Title ── */}
+        <h2
+          className={cn(
+            'font-display text-3xl sm:text-4xl text-espresso-900 leading-tight mb-4',
+            'animate-slide-up'
+          )}
+        >
+          {t('newsletter.title')}
+        </h2>
+
+        {/* ── Subtitle ── */}
+        <p className="text-espresso-600 text-base sm:text-lg mb-10 max-w-md mx-auto animate-slide-up stagger-2">
+          {t('newsletter.subtitle')}
+        </p>
+
+        {/* ── Form / Success state ── */}
+        {submitted ? (
+          <div className="animate-scale-in">
+            <div className="inline-flex items-center gap-2 rounded-full bg-palm-700/10 border border-palm-600/20 px-6 py-3">
+              <span className="text-palm-700 text-lg" aria-hidden="true">
+                ✓
+              </span>
+              <span className="text-palm-800 font-medium text-sm">
+                {isArabic ? 'شكراً لاشتراكك!' : 'Thanks for subscribing!'}
+              </span>
+            </div>
+          </div>
+        ) : (
+          <form
+            onSubmit={handleSubmit}
+            className="animate-slide-up stagger-3"
+          >
+            {/* Input + button wrapper */}
+            <div className="relative mx-auto max-w-md">
+              <input
+                type="email"
+                required
+                value={email}
+                onChange={(e) => setEmail(e.target.value)}
+                placeholder={t('newsletter.placeholder')}
+                className={cn(
+                  'w-full rounded-full bg-white border border-sand-200',
+                  'py-4 text-sm text-espresso-900 placeholder:text-sand-400',
+                  'transition-all duration-300',
+                  'focus:outline-none focus:border-amber-gold/50 focus:ring-2 focus:ring-amber-gold/20',
+                  isArabic ? 'ps-6 pe-36' : 'ps-6 pe-36'
+                )}
+              />
+              <button
+                type="submit"
+                className={cn(
+                  'absolute top-1.5 rounded-full',
+                  'bg-amber-gold text-espresso-900 font-semibold',
+                  'px-6 py-2.5 text-sm',
+                  'flex items-center gap-2',
+                  'transition-all duration-300',
+                  'hover:bg-amber-warm hover:shadow-md hover:shadow-amber-gold/25',
+                  'active:scale-[0.97]',
+                  isArabic ? 'start-1.5' : 'end-1.5'
+                )}
+              >
+                {t('newsletter.button')}
+                <Send className={cn('h-4 w-4', isArabic && '-scale-x-100')} />
+              </button>
+            </div>
+
+            {/* Privacy note */}
+            <p className="text-sand-500 text-xs mt-4">
+              {t('newsletter.privacy')}
+            </p>
+          </form>
+        )}
+      </div>
+    </section>
+  )
+}

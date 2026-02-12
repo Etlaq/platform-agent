@@ -1,0 +1,30 @@
+{
+  "name": "agent_v2",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "encore run",
+    "start": "encore run",
+    "test": "vitest --run --passWithNoTests",
+    "test:encore": "encore test",
+    "typecheck": "tsc --noEmit"
+  },
+  "dependencies": {
+    "@e2b/code-interpreter": "latest",
+    "@langchain/anthropic": "latest",
+    "@langchain/core": "latest",
+    "@langchain/mcp-adapters": "latest",
+    "@langchain/openai": "latest",
+    "deepagents": "latest",
+    "encore.dev": "^1.54.0",
+    "langchain": "latest",
+    "pg": "^8.18.0",
+    "zod": "latest"
+  },
+  "devDependencies": {
+    "@types/bun": "latest",
+    "@types/node": "^20.5.7",
+    "typescript": "^5.2.2",
+    "vitest": "^1.5.0"
+  }
+}

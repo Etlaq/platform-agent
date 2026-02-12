@@ -1,0 +1,136 @@
+'use client'
+
+import Image from 'next/image'
+import { useLanguage } from '@/contexts/LanguageContext'
+import { categories } from '@/lib/data'
+import { cn } from '@/lib/utils'
+
+export function Categories() {
+  const { isArabic, t } = useLanguage()
+
+  return (
+    <section className="py-24 px-6 bg-cream-warm">
+      <div className="max-w-7xl mx-auto">
+        {/* ── Section Header ── */}
+        <div className="text-center mb-16 animate-slide-up">
+          <h2
+            className={cn(
+              'font-display text-4xl md:text-5xl text-espresso-900',
+              'mb-4'
+            )}
+          >
+            {t('categories.title')}
+          </h2>
+
+          {/* Decorative underline */}
+          <div className="flex items-center justify-center gap-3 mb-5">
+            <span className="h-px w-12 bg-sand-300" />
+            <span className="block size-2 rounded-full bg-amber-gold" />
+            <span className="h-0.5 w-20 bg-amber-gold rounded-full" />
+            <span className="block size-2 rounded-full bg-amber-gold" />
+            <span className="h-px w-12 bg-sand-300" />
+          </div>
+
+          <p className="text-sand-500 text-lg max-w-md mx-auto">
+            {t('categories.subtitle')}
+          </p>
+        </div>
+
+        {/* ── Categories Grid ── */}
+        <div
+          className={cn(
+            'grid gap-5',
+            'grid-cols-1 sm:grid-cols-2 lg:grid-cols-4'
+          )}
+        >
+          {categories.map((category, index) => {
+            const isLarge = index < 2
+            const name = isArabic ? category.nameAr : category.nameEn
+            const staggerClass = `stagger-${Math.min(index + 1, 8)}`
+
+            return (
+              <article
+                key={category.id}
+                className={cn(
+                  'group relative rounded-3xl overflow-hidden cursor-pointer',
+                  'animate-slide-up',
+                  staggerClass,
+                  isLarge
+                    ? 'sm:col-span-2 aspect-[4/3]'
+                    : 'aspect-square'
+                )}
+              >
+                {/* Background Image */}
+                <Image
+                  src={category.image}
+                  alt={name}
+                  fill
+                  sizes={
+                    isLarge
+                      ? '(max-width: 640px) 100vw, 50vw'
+                      : '(max-width: 640px) 100vw, (max-width: 1024px) 50vw, 25vw'
+                  }
+                  className={cn(
+                    'object-cover',
+                    'transition-transform duration-700 ease-out',
+                    'group-hover:scale-105'
+                  )}
+                />
+
+                {/* Dark Gradient Overlay */}
+                <div
+                  className={cn(
+                    'absolute inset-0',
+                    'bg-gradient-to-t from-espresso-900/80 via-espresso-900/30 to-transparent',
+                    'transition-colors duration-500',
+                    'group-hover:from-espresso-900/65 group-hover:via-espresso-900/20'
+                  )}
+                />
+
+                {/* Content at Bottom */}
+                <div className="absolute inset-x-0 bottom-0 p-6 flex flex-col items-start gap-2.5">
+                  <h3
+                    className={cn(
+                      'font-display text-cream',
+                      isLarge ? 'text-3xl md:text-4xl' : 'text-2xl',
+                      'drop-shadow-md',
+                      'transition-transform duration-300',
+                      'group-hover:-translate-y-0.5'
+                    )}
+                  >
+                    {name}
+                  </h3>
+
+                  {/* Item Count Badge */}
+                  <span
+                    className={cn(
+                      'inline-flex items-center gap-1.5',
+                      'bg-cream/15 backdrop-blur-sm',
+                      'text-cream/90 text-sm',
+                      'rounded-full px-3.5 py-1',
+                      'border border-cream/10',
+                      'transition-all duration-300',
+                      'group-hover:bg-amber-gold/25 group-hover:border-amber-gold/20'
+                    )}
+                  >
+                    {category.count} {t('product.items')}
+                  </span>
+                </div>
+
+                {/* Subtle corner accent on hover */}
+                <div
+                  className={cn(
+                    'absolute top-4 rounded-full size-8',
+                    'border border-cream/0 transition-all duration-500',
+                    'group-hover:border-cream/20',
+                    'end-4'
+                  )}
+                />
+              </article>
+            )
+          })}
+        </div>
+      </div>
+    </section>
+  )
+}

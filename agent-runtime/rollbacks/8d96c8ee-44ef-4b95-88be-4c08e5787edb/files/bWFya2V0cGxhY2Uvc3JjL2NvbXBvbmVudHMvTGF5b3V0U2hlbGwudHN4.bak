@@ -1,0 +1,28 @@
+'use client'
+
+import { useEffect, type ReactNode } from 'react'
+import { useLanguage } from '@/contexts/LanguageContext'
+import { Header } from '@/components/Header'
+import Footer from '@/components/Footer'
+
+interface LayoutShellProps {
+  children: ReactNode
+}
+
+export function LayoutShell({ children }: LayoutShellProps) {
+  const { language, dir } = useLanguage()
+
+  // Sync document dir and lang attributes when language changes
+  useEffect(() => {
+    document.documentElement.dir = dir
+    document.documentElement.lang = language
+  }, [language, dir])
+
+  return (
+    <div className="grain-overlay flex min-h-screen flex-col">
+      <Header />
+      <main className="flex-1">{children}</main>
+      <Footer />
+    </div>
+  )
+}

@@ -1,0 +1,20 @@
+.encore
+encore.gen.go
+encore.gen.cue
+/.encore
+node_modules
+/encore.gen
+
+# env & secrets
+.env
+.env.local
+.env.production
+
+# build artifacts
+tsconfig.tsbuildinfo
+bun.lock
+package-lock.json
+
+# editors & tools
+.codex/
+.exports/

@@ -1,0 +1,22 @@
+import { clsx, type ClassValue } from 'clsx'
+import { twMerge } from 'tailwind-merge'
+
+export function cn(...inputs: ClassValue[]) {
+  return twMerge(clsx(inputs))
+}
+
+export function formatPrice(price: number, isArabic: boolean): string {
+  // Format as SAR with Arabic/English numerals
+  if (isArabic) {
+    const arabicNumerals = price.toString().replace(/[0-9]/g, (d) => '٠١٢٣٤٥٦٧٨٩'[parseInt(d)])
+    return `${arabicNumerals} ر.س`
+  }
+  return `${price} SAR`
+}
+
+export function formatRating(rating: number, isArabic: boolean): string {
+  if (isArabic) {
+    return rating.toString().replace(/[0-9]/g, (d) => '٠١٢٣٤٥٦٧٨٩'[parseInt(d)]).replace('.', '٫')
+  }
+  return rating.toString()
+}

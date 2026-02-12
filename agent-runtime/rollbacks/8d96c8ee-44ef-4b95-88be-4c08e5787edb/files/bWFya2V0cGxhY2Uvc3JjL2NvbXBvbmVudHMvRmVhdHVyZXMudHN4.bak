@@ -1,0 +1,136 @@
+'use client'
+
+import { useLanguage } from '@/contexts/LanguageContext'
+import { Leaf, Truck, Shield, Headphones, type LucideIcon } from 'lucide-react'
+
+/* ------------------------------------------------------------------ */
+/*  Feature data                                                       */
+/* ------------------------------------------------------------------ */
+
+interface Feature {
+  icon: LucideIcon
+  titleKey: string
+  descKey: string
+  stagger: string
+}
+
+const features: Feature[] = [
+  {
+    icon: Leaf,
+    titleKey: 'feature.organic',
+    descKey: 'feature.organic.desc',
+    stagger: 'stagger-1',
+  },
+  {
+    icon: Truck,
+    titleKey: 'feature.delivery',
+    descKey: 'feature.delivery.desc',
+    stagger: 'stagger-2',
+  },
+  {
+    icon: Shield,
+    titleKey: 'feature.quality',
+    descKey: 'feature.quality.desc',
+    stagger: 'stagger-3',
+  },
+  {
+    icon: Headphones,
+    titleKey: 'feature.support',
+    descKey: 'feature.support.desc',
+    stagger: 'stagger-4',
+  },
+]
+
+/* ------------------------------------------------------------------ */
+/*  Feature card                                                       */
+/* ------------------------------------------------------------------ */
+
+function FeatureCard({
+  feature,
+  t,
+}: {
+  feature: Feature
+  t: (key: string) => string
+}) {
+  const Icon = feature.icon
+
+  return (
+    <div
+      className={`
+        group relative flex flex-col items-center text-center
+        rounded-2xl bg-cream/80 backdrop-blur-sm
+        px-6 py-10 md:px-8 md:py-12
+        border border-amber-gold/10
+        transition-all duration-300 ease-out
+        hover:scale-[1.03] hover:shadow-elevated
+        hover:border-amber-gold/25
+        animate-slide-up ${feature.stagger}
+      `}
+    >
+      {/* Icon container */}
+      <div
+        className="
+          flex items-center justify-center
+          w-16 h-16 md:w-[72px] md:h-[72px]
+          rounded-2xl bg-sand-100 border border-amber-gold/10
+          mb-6 transition-colors duration-300
+          group-hover:bg-amber-gold/10 group-hover:border-amber-gold/25
+        "
+      >
+        <Icon
+          size={40}
+          strokeWidth={1.5}
+          className="text-amber-gold transition-transform duration-300 group-hover:scale-110"
+        />
+      </div>
+
+      {/* Title */}
+      <h3 className="text-espresso-900 font-display text-xl md:text-2xl font-bold leading-snug mb-3">
+        {t(feature.titleKey)}
+      </h3>
+
+      {/* Description */}
+      <p className="text-espresso-600 text-sm md:text-base leading-relaxed max-w-[260px]">
+        {t(feature.descKey)}
+      </p>
+
+      {/* Decorative bottom accent line – appears on hover */}
+      <span
+        className="
+          absolute bottom-0 start-1/2 -translate-x-1/2
+          h-0.5 w-0 rounded-full
+          bg-gradient-to-r from-transparent via-amber-gold to-transparent
+          transition-all duration-500 group-hover:w-2/3
+        "
+      />
+    </div>
+  )
+}
+
+/* ================================================================== */
+/*  FEATURES SECTION                                                   */
+/* ================================================================== */
+
+export default function Features() {
+  const { t } = useLanguage()
+
+  return (
+    <section className="relative py-20 px-6 bg-cream-warm overflow-hidden">
+      {/* ── Dot pattern overlay ── */}
+      <div className="pattern-dots absolute inset-0 pointer-events-none opacity-40" />
+
+      {/* ── Content ── */}
+      <div className="relative z-10 max-w-6xl mx-auto">
+        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-6 md:gap-8">
+          {features.map((feature) => (
+            <FeatureCard
+              key={feature.titleKey}
+              feature={feature}
+              t={t}
+            />
+          ))}
+        </div>
+      </div>
+    </section>
+  )
+}

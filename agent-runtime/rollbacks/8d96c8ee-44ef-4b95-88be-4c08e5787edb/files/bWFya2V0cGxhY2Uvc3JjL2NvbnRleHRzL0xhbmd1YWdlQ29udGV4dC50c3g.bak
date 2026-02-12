@@ -1,0 +1,256 @@
+'use client'
+
+import {
+  createContext,
+  useContext,
+  useState,
+  useCallback,
+  useEffect,
+  type ReactNode,
+} from 'react'
+
+// ─────────────────────────────────────────────────────────────
+// Types
+// ─────────────────────────────────────────────────────────────
+
+type Language = 'ar' | 'en'
+
+interface TranslationEntry {
+  ar: string
+  en: string
+}
+
+interface TranslationMap {
+  [key: string]: TranslationEntry
+}
+
+// ─────────────────────────────────────────────────────────────
+// Translations — نخيل | Nakheel
+// ─────────────────────────────────────────────────────────────
+
+const translations: TranslationMap = {
+
+  // ── Navigation ──────────────────────────────────────────────
+  'nav.home':       { ar: 'الرئيسية',       en: 'Home' },
+  'nav.shop':       { ar: 'المتجر',         en: 'Shop' },
+  'nav.categories': { ar: 'الأصناف',        en: 'Categories' },
+  'nav.about':      { ar: 'من نحن',         en: 'About' },
+  'nav.contact':    { ar: 'تواصل معنا',     en: 'Contact' },
+  'nav.cart':       { ar: 'سلة المشتريات',  en: 'Cart' },
+  'nav.search':     { ar: 'ابحث عن تمور فاخرة...', en: 'Search premium dates...' },
+
+  // ── Hero ────────────────────────────────────────────────────
+  'hero.badge': { ar: 'من المزرعة إلى بابك', en: 'Farm to Doorstep' },
+  'hero.subtitle': { ar: 'سوق التمور الفاخرة', en: 'Premium Dates Marketplace' },
+  'hero.title': {
+    ar: 'أجود التمور من قلب الجزيرة العربية',
+    en: 'The Finest Dates from the Heart of Arabia',
+  },
+  'hero.description': {
+    ar: 'نختار لكم أفخر أنواع التمور من أعرق المزارع في المملكة العربية السعودية، لنقدم لكم تجربة تذوّق استثنائية لا تُنسى',
+    en: 'We hand-select the most exquisite dates from the most prestigious farms across Saudi Arabia, delivering an unforgettable tasting experience to your door',
+  },
+  'hero.cta':   { ar: 'تسوّق الآن',        en: 'Shop Now' },
+  'hero.cta2':  { ar: 'اكتشف المجموعات',   en: 'Explore Collections' },
+  'hero.stat1': { ar: '+٥٠ ألف طلب',       en: '50K+ Orders' },
+  'hero.stat2': { ar: '١٥+ مزرعة',         en: '15+ Farms' },
+  'hero.stat3': { ar: '٤.٩ تقييم',         en: '4.9 Rating' },
+
+  // ── Featured ───────────────────────────────────────────────
+  'featured.title': { ar: 'تمور مميزة', en: 'Featured Dates' },
+  'featured.subtitle': {
+    ar: 'اكتشف أفضل ما لدينا من تمور فاخرة مختارة بعناية فائقة',
+    en: 'Discover our finest hand-selected premium dates',
+  },
+
+  // ── Categories ─────────────────────────────────────────────
+  'categories.title': { ar: 'تصفّح الأصناف', en: 'Browse Categories' },
+  'categories.subtitle': {
+    ar: 'اختر من مجموعتنا المتنوعة من أجود أصناف التمور',
+    en: 'Choose from our diverse collection of the finest date varieties',
+  },
+
+  // ── Testimonials ───────────────────────────────────────────
+  'testimonials.title': { ar: 'ماذا يقول عملاؤنا', en: 'What Our Customers Say' },
+  'testimonials.subtitle': {
+    ar: 'آراء حقيقية من عملاء يثقون بنخيل',
+    en: 'Real reviews from customers who trust Nakheel',
+  },
+
+  // ── CTA ────────────────────────────────────────────────────
+  'cta.title': {
+    ar: 'اطلب الآن واستمتع بتوصيل مجاني',
+    en: 'Order Now & Enjoy Free Delivery',
+  },
+  'cta.subtitle': {
+    ar: 'للطلبات فوق ٢٠٠ ريال داخل المملكة العربية السعودية',
+    en: 'For orders above 200 SAR within Saudi Arabia',
+  },
+  'cta.button': { ar: 'تسوّق الآن', en: 'Shop Now' },
+
+  // ── Product ────────────────────────────────────────────────
+  'product.addToCart':    { ar: 'أضف للسلة',          en: 'Add to Cart' },
+  'product.viewDetails': { ar: 'عرض التفاصيل',       en: 'View Details' },
+  'product.reviews':     { ar: 'تقييم',              en: 'reviews' },
+  'product.origin':      { ar: 'المصدر',             en: 'Origin' },
+  'product.weight':      { ar: 'الوزن',              en: 'Weight' },
+  'product.viewAll':     { ar: 'عرض جميع المنتجات',  en: 'View All Products' },
+  'product.items':       { ar: 'منتج',               en: 'items' },
+  'product.outOfStock':  { ar: 'نفذت الكمية',        en: 'Out of Stock' },
+  'product.sar':         { ar: 'ر.س',                en: 'SAR' },
+
+  // ── Features ───────────────────────────────────────────────
+  'feature.organic':      { ar: 'عضوي ١٠٠٪',     en: '100% Organic' },
+  'feature.organic.desc': {
+    ar: 'تمور طبيعية خالصة بدون أي إضافات أو مواد كيميائية',
+    en: 'Pure natural dates without any additives or chemicals',
+  },
+  'feature.delivery':      { ar: 'توصيل سريع',    en: 'Fast Delivery' },
+  'feature.delivery.desc': {
+    ar: 'توصيل مبرّد خلال ٢٤-٤٨ ساعة لجميع مناطق المملكة',
+    en: 'Chilled delivery within 24-48 hours across Saudi Arabia',
+  },
+  'feature.quality':      { ar: 'جودة مضمونة',    en: 'Quality Guaranteed' },
+  'feature.quality.desc': {
+    ar: 'ضمان استرجاع كامل المبلغ خلال ٧ أيام إذا لم تنل رضاكم',
+    en: 'Full refund within 7 days if you are not completely satisfied',
+  },
+  'feature.support':      { ar: 'دعم متواصل',     en: '24/7 Support' },
+  'feature.support.desc': {
+    ar: 'فريق خدمة العملاء متاح على مدار الساعة لخدمتكم وراحتكم',
+    en: 'Our customer service team is available around the clock for your convenience',
+  },
+
+  // ── Newsletter ─────────────────────────────────────────────
+  'newsletter.title': { ar: 'انضم لعائلة نخيل', en: 'Join the Nakheel Family' },
+  'newsletter.subtitle': {
+    ar: 'كن أول من يعرف عن العروض الحصرية والمنتجات الموسمية الجديدة',
+    en: 'Be the first to know about exclusive offers and new seasonal products',
+  },
+  'newsletter.placeholder': { ar: 'بريدك الإلكتروني', en: 'Your email address' },
+  'newsletter.button':      { ar: 'اشترك الآن',       en: 'Subscribe Now' },
+  'newsletter.privacy': {
+    ar: 'نحترم خصوصيتك ولن نشارك بريدك الإلكتروني مع أي طرف ثالث',
+    en: 'We respect your privacy and will never share your email with third parties',
+  },
+
+  // ── Footer ─────────────────────────────────────────────────
+  'footer.about': { ar: 'عن نخيل', en: 'About Nakheel' },
+  'footer.aboutText': {
+    ar: 'وجهتكم الأولى لأجود أنواع التمور الفاخرة من قلب المملكة العربية السعودية. نفخر بتقديم تمور مختارة بعناية من أعرق المزارع',
+    en: 'Your premier destination for the finest premium dates from the heart of Saudi Arabia. We take pride in offering carefully selected dates from the most prestigious farms',
+  },
+  'footer.quickLinks':      { ar: 'روابط سريعة',          en: 'Quick Links' },
+  'footer.customerService': { ar: 'خدمة العملاء',         en: 'Customer Service' },
+  'footer.followUs':        { ar: 'تابعونا',              en: 'Follow Us' },
+  'footer.copyright': {
+    ar: '© ٢٠٢٥ نخيل. جميع الحقوق محفوظة',
+    en: '© 2025 Nakheel. All rights reserved',
+  },
+  'footer.faq':      { ar: 'الأسئلة الشائعة',       en: 'FAQ' },
+  'footer.shipping': { ar: 'الشحن والتوصيل',        en: 'Shipping & Delivery' },
+  'footer.returns':  { ar: 'الإرجاع والاستبدال',     en: 'Returns & Exchange' },
+  'footer.privacy':  { ar: 'سياسة الخصوصية',        en: 'Privacy Policy' },
+  'footer.terms':    { ar: 'الشروط والأحكام',       en: 'Terms & Conditions' },
+
+  // ── Cart ───────────────────────────────────────────────────
+  'cart.title':            { ar: 'سلة المشتريات',                en: 'Shopping Cart' },
+  'cart.empty':            { ar: 'سلتك فارغة',                   en: 'Your cart is empty' },
+  'cart.emptyDesc':        { ar: 'أضف بعض التمور الفاخرة لسلتك وابدأ رحلة التذوّق', en: 'Add some premium dates to your cart and start your tasting journey' },
+  'cart.subtotal':         { ar: 'المجموع الفرعي',               en: 'Subtotal' },
+  'cart.shipping':         { ar: 'الشحن',                        en: 'Shipping' },
+  'cart.shippingFree':     { ar: 'مجاني',                        en: 'Free' },
+  'cart.total':            { ar: 'الإجمالي',                     en: 'Total' },
+  'cart.checkout':         { ar: 'إتمام الطلب',                  en: 'Checkout' },
+  'cart.continueShopping': { ar: 'متابعة التسوّق',               en: 'Continue Shopping' },
+  'cart.remove':           { ar: 'إزالة',                        en: 'Remove' },
+  'cart.quantity':         { ar: 'الكمية',                       en: 'Quantity' },
+
+  // ── Common ─────────────────────────────────────────────────
+  'common.currency': { ar: 'ر.س', en: 'SAR' },
+}
+
+// ─────────────────────────────────────────────────────────────
+// Context
+// ─────────────────────────────────────────────────────────────
+
+interface LanguageContextType {
+  language: Language
+  isArabic: boolean
+  dir: 'rtl' | 'ltr'
+  setLanguage: (lang: Language) => void
+  t: (key: string) => string
+}
+
+const LanguageContext = createContext<LanguageContextType | undefined>(undefined)
+
+// ─────────────────────────────────────────────────────────────
+// Provider
+// ─────────────────────────────────────────────────────────────
+
+const STORAGE_KEY = 'nakheel-lang'
+
+function getInitialLanguage(): Language {
+  if (typeof window === 'undefined') return 'ar'
+  try {
+    const stored = localStorage.getItem(STORAGE_KEY)
+    if (stored === 'ar' || stored === 'en') return stored
+  } catch {
+    // localStorage may be unavailable (SSR, privacy mode, etc.)
+  }
+  return 'ar'
+}
+
+export function LanguageProvider({ children }: { children: ReactNode }) {
+  const [language, setLanguageState] = useState<Language>(getInitialLanguage)
+
+  const isArabic = language === 'ar'
+  const dir: 'rtl' | 'ltr' = isArabic ? 'rtl' : 'ltr'
+
+  const setLanguage = useCallback((lang: Language) => {
+    setLanguageState(lang)
+    try {
+      localStorage.setItem(STORAGE_KEY, lang)
+    } catch {
+      // Silently ignore storage errors
+    }
+  }, [])
+
+  const t = useCallback(
+    (key: string): string => {
+      const entry = translations[key]
+      if (!entry) {
+        if (process.env.NODE_ENV === 'development') {
+          console.warn(`[Nakheel i18n] Missing translation key: "${key}"`)
+        }
+        return key
+      }
+      return entry[language]
+    },
+    [language]
+  )
+
+  // Sync document attributes whenever language changes
+  useEffect(() => {
+    document.documentElement.lang = language
+    document.documentElement.dir = dir
+  }, [language, dir])
+
+  return (
+    <LanguageContext.Provider value={{ language, isArabic, dir, setLanguage, t }}>
+      {children}
+    </LanguageContext.Provider>
+  )
+}
+
+// ─────────────────────────────────────────────────────────────
+// Hook
+// ─────────────────────────────────────────────────────────────
+
+export function useLanguage(): LanguageContextType {
+  const context = useContext(LanguageContext)
+  if (!context) {
+    throw new Error('useLanguage must be used within a <LanguageProvider>')
+  }
+  return context
+}

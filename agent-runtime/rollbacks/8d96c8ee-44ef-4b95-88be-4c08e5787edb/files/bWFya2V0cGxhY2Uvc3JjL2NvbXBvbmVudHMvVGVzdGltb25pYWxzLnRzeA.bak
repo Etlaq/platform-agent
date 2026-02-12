@@ -1,0 +1,103 @@
+'use client'
+
+import { useLanguage } from '@/contexts/LanguageContext'
+import { testimonials } from '@/lib/data'
+import { Star } from 'lucide-react'
+import { cn } from '@/lib/utils'
+
+export default function Testimonials() {
+  const { t, isArabic } = useLanguage()
+
+  return (
+    <section className="relative bg-cream py-24 px-6 overflow-hidden">
+      {/* Arabesque pattern overlay */}
+      <div className="absolute inset-0 pattern-arabesque opacity-60 pointer-events-none" />
+
+      <div className="relative mx-auto max-w-7xl">
+        {/* ── Section header ── */}
+        <div className="mb-16 text-center animate-slide-up">
+          <span className="mb-3 inline-block font-display text-amber-gold text-lg tracking-wide">
+            ✦
+          </span>
+          <h2 className="font-display text-4xl md:text-5xl text-espresso-900 mb-4">
+            {t('testimonials.title')}
+          </h2>
+          <p className="text-sand-400 text-lg max-w-xl mx-auto">
+            {t('testimonials.subtitle')}
+          </p>
+          <div className="luxury-divider mx-auto mt-6 w-48" />
+        </div>
+
+        {/* ── Testimonial cards grid ── */}
+        <div className="grid grid-cols-1 md:grid-cols-3 gap-8">
+          {testimonials.slice(0, 3).map((testimonial, index) => (
+            <div
+              key={testimonial.id}
+              className={cn(
+                'relative bg-ivory rounded-3xl p-8 border border-sand-200',
+                'animate-slide-up',
+                index === 0 ? 'stagger-2' : index === 1 ? 'stagger-4' : 'stagger-6',
+                'transition-all duration-500 hover:shadow-xl hover:shadow-amber-gold/10',
+                'hover:-translate-y-1 group'
+              )}
+            >
+              {/* Decorative quote mark — RTL-safe positioning */}
+              <span
+                className={cn(
+                  'absolute top-4 font-display text-8xl leading-none',
+                  'text-amber-gold/20 select-none pointer-events-none',
+                  isArabic ? 'end-6' : 'start-6'
+                )}
+                aria-hidden="true"
+              >
+                &ldquo;
+              </span>
+
+              {/* Review text */}
+              <p className="relative z-10 text-espresso-700 text-lg leading-relaxed italic font-display pt-8 mb-6">
+                {isArabic ? testimonial.textAr : testimonial.textEn}
+              </p>
+
+              {/* Star rating */}
+              <div className="flex items-center gap-1 mb-5">
+                {Array.from({ length: testimonial.rating }).map((_, i) => (
+                  <Star
+                    key={i}
+                    className="h-4 w-4 fill-amber-gold text-amber-gold"
+                  />
+                ))}
+              </div>
+
+              {/* Luxury divider */}
+              <div className="luxury-divider mb-5 opacity-50" />
+
+              {/* Customer info with avatar */}
+              <div className="flex items-center gap-3">
+                {/* Avatar circle with initials */}
+                <div
+                  className="
+                    flex-shrink-0 flex items-center justify-center
+                    w-10 h-10 rounded-full
+                    bg-amber-gold/10 text-amber-deep
+                    font-semibold text-sm
+                  "
+                >
+                  {testimonial.avatar}
+                </div>
+
+                <div>
+                  <p className="text-espresso-900 font-semibold text-base">
+                    {isArabic ? testimonial.nameAr : testimonial.nameEn}
+                  </p>
+                  <p className="text-sand-400 text-sm mt-0.5">
+                    {isArabic ? testimonial.locationAr : testimonial.locationEn}
+                  </p>
+                </div>
+              </div>
+            </div>
+          ))}
+        </div>
+      </div>
+    </section>
+  )
+}
