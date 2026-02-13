@@ -1,0 +1,58 @@
+# AGENTS.md
+
+Quick reference for subagents. See project guidelines for full details.
+
+## Commands
+```bash
+bun dev          # Dev server (Turbopack)
+bun run build    # Production build
+bun lint         # ESLint
+```
+
+## Stack
+Next.js 16 · React 19 · TypeScript · Tailwind CSS 4 (OKLCH) · shadcn/ui · MongoDB/Mongoose
+
+## Critical Rules
+
+1. **Read before edit** - Never modify files without reading them first
+2. **Semantic colors only** - Use `bg-background`, `text-foreground`, never `bg-white`, `text-black`
+3. **RTL-safe classes** - Use `ps-`, `pe-`, `ms-`, `me-`, `start`, `end` (never `pl-`, `pr-`, `left-`, `right-`)
+4. **Arabic-first content** - Always provide both Arabic and English; Arabic is the default
+5. **No `any` types** - Use proper TypeScript types
+
+## shadcn/ui Button Variants
+```tsx
+import { Button } from '@/components/ui/button'
+// variant: default | secondary | outline | ghost | link | destructive
+// size: default | xs | sm | lg | icon | icon-xs | icon-sm | icon-lg
+```
+
+## Context Hooks
+```tsx
+const { t, isArabic, dir, setLanguage } = useLanguage() // from @/contexts/LanguageContext
+const { theme, isDark, toggleTheme, setTheme } = useTheme() // from @/contexts/ThemeContext
+```
+
+## File Structure
+```
+app/page.tsx, layout.tsx, globals.css, error.tsx, loading.tsx
+components/ThemeToggle, LanguageToggle, ui/
+contexts/LanguageContext.tsx, ThemeContext.tsx
+lib/mongodb.ts, utils.ts, env.ts
+```
+
+## Code Style
+- Absolute imports: `@/lib/x`, `@/components/x`
+- Client components: `'use client'` at top
+- Class merging: `cn()` from `@/lib/utils`
+- Error handling: try/catch with `console.error` + `toast.error()`
+- Touch targets: minimum 44px
+
+## Notes (Append Only)
+<!-- AGENTS_NOTES_START -->
+- 2026-02-12T14:48:41.283Z: run_error: Workspace is not a Next.js project (missing next dependency).
+- 2026-02-13T13:08:50.988Z: run_error: 401 {"type":"error","error":{"type":"authentication_error","message":"invalid x-api-key"},"request_id":"req_011CY67zdNuVKF5f6sRvH3WL"} Troubleshooting URL: https://docs.langchain.com/oss/javascript/langchain/errors/MODEL_AUTHENTICATION/
+- 2026-02-13T13:08:53.496Z: run_error: 401 {"type":"error","error":{"type":"authentication_error","message":"invalid x-api-key"},"request_id":"req_011CY67zp8ZPPGWono9fAzxm"} Troubleshooting URL: https://docs.langchain.com/oss/javascript/langchain/errors/MODEL_AUTHENTICATION/
+- 2026-02-13T13:08:58.482Z: run_error: 401 {"type":"error","error":{"type":"authentication_error","message":"invalid x-api-key"},"request_id":"req_011CY681BRyPeVzSTqDYWG1o"} Troubleshooting URL: https://docs.langchain.com/oss/javascript/langchain/errors/MODEL_AUTHENTICATION/
+- 2026-02-13T13:14:11.110Z: run_error: Workspace is not a Next.js project (missing next dependency).
+<!-- AGENTS_NOTES_END -->
