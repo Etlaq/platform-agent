@@ -56,3 +56,5 @@ lib/mongodb.ts, utils.ts, env.ts
 - 2026-02-13T13:08:58.482Z: run_error: 401 {"type":"error","error":{"type":"authentication_error","message":"invalid x-api-key"},"request_id":"req_011CY681BRyPeVzSTqDYWG1o"} Troubleshooting URL: https://docs.langchain.com/oss/javascript/langchain/errors/MODEL_AUTHENTICATION/
 - 2026-02-13T13:14:11.110Z: run_error: Workspace is not a Next.js project (missing next dependency).
 <!-- AGENTS_NOTES_END -->
+ion":"add_dependencies","deps":[{"name":"next","version":"^16.0.0","dev":false},{"name":"react","version":"^19.0.0","dev":false},{"name":"react-dom","version":"^19.0.0","dev":false},{"name":"tail
+<!-- AGENTS_NOTES_END -->

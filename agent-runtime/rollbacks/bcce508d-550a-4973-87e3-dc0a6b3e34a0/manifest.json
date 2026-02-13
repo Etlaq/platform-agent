@@ -1,0 +1,12 @@
+{
+  "runId": "bcce508d-550a-4973-87e3-dc0a6b3e34a0",
+  "createdAt": "2026-02-12T14:37:44.280Z",
+  "workspaceRoot": "/home/air/Projects/etlaq-v2/etlaq_platform/agent/agent_v2",
+  "entries": [
+    {
+      "relPath": "AGENTS.md",
+      "kind": "modify",
+      "backupFile": "files/QUdFTlRTLm1k.bak"
+    }
+  ]
+}
