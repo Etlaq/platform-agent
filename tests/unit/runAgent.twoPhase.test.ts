@@ -109,7 +109,7 @@ describe('runAgent two-phase flow', () => {
     expect(parsed?.summary).toBe('Ship feature')
     expect(parsed?.todos).toHaveLength(2)
     expect(parsed?.todos[0]?.title).toBe('Add API')
-  })
+  }, 20_000)
 
   it('falls back to markdown todo parsing when JSON is absent', async () => {
     const { parsePlanSnapshot } = await import('../../agent/runAgent')

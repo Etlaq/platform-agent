@@ -237,6 +237,7 @@ export async function claimRunForExecution(runId: string) {
       WHERE r.id = ${runId}
         AND r.status IN ('queued', 'running')
         AND j.status = 'queued'
+        AND j.next_run_at <= NOW()
       FOR UPDATE
     ),
     claimed_run AS (
@@ -267,6 +268,27 @@ export async function claimRunForExecution(runId: string) {
   `
 
   return Boolean(row)
+}
+
+export async function listRunnableQueuedJobRunIds(params?: {
+  limit?: number
+  minQueuedAgeSeconds?: number
+}) {
+  const limit = Math.max(1, Math.min(500, Math.trunc(params?.limit ?? 50)))
+  const minAgeSeconds = Math.max(0, Math.min(86_400, Math.trunc(params?.minQueuedAgeSeconds ?? 30)))
+
+  const rows = await db.query<{ run_id: string }>`
+    SELECT run_id
+    FROM jobs
+    WHERE status = 'queued'
+      AND next_run_at <= NOW()
+      AND updated_at < NOW() - (${minAgeSeconds} || ' seconds')::interval
+    ORDER BY updated_at ASC
+    LIMIT ${limit}
+  `
+
+  const queued = await collectRows(rows)
+  return queued.map((row) => row.run_id)
 }
 
 export async function completeRun(id: string, output: string, meta?: {
