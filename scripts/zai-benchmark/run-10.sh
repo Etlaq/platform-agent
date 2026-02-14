@@ -44,6 +44,9 @@ ZIPS_DIR="$OUT_DIR/zips"
 RUNS_DIR="$OUT_DIR/runs"
 mkdir -p "$ZIPS_DIR" "$RUNS_DIR"
 
+START_CASE="${START_CASE:-1}"
+END_CASE="${END_CASE:-10}"
+
 if [[ -z "${API_KEY:-}" ]]; then
   echo "API key missing. Set API_KEY or AGENT_API_KEY in env (or in $ROOT_DIR/.env)." >&2
   exit 1
@@ -222,9 +225,15 @@ main() {
   echo "Run timeout (after start): ${RUN_TIMEOUT_SEC}s"
 
   local summary_json="$OUT_DIR/summary.json"
-  echo "[]" >"$summary_json"
+  if [[ -f "$summary_json" ]]; then
+    if ! jq -e . "$summary_json" >/dev/null 2>&1; then
+      echo "[]" >"$summary_json"
+    fi
+  else
+    echo "[]" >"$summary_json"
+  fi
 
-  for n in $(seq 1 10); do
+  for n in $(seq "$START_CASE" "$END_CASE"); do
     local name prompt_file prompt
     name="$(case_name_for "$n")"
     prompt_file="$(prompt_file_for "$n")"
@@ -325,4 +334,3 @@ main() {
 }
 
 main "$@"
-
