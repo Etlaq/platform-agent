@@ -15,6 +15,7 @@ export const E2B_SYSTEM_PROMPT =
   'Use write_todos for complex multi-step work, filesystem tools for file edits, and the task tool to delegate independent work to subagents. ' +
   'Make changes by editing project files under / using the filesystem tools. ' +
   'To run package/dev commands (bun/bunx/node/npm/pnpm), use the sandbox_cmd tool. ' +
+  'When using sandbox_cmd: use the cwd option instead of cd/&&/|/>; and use envs instead of VAR=value prefixes. ' +
   'Never read /.env or any .env.* secrets (prefer /.env.example). ' +
   'Do not read or scan node_modules or .git. ' +
   'Avoid long design documents; prioritize shipping working code quickly. ' +

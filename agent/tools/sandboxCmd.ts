@@ -5,6 +5,7 @@ import type { Sandbox } from '@e2b/code-interpreter'
 const sandboxCmdSchema = z.object({
   cmd: z.string().min(1),
   cwd: z.string().min(1).optional(),
+  envs: z.record(z.string().min(1), z.string()).optional(),
   timeoutMs: z.number().int().positive().optional(),
 })
 
@@ -34,13 +35,16 @@ export function createSandboxCmdTool(params: {
         return {
           ok: false,
           error:
-            'Command denied by policy. Only bun/bunx/node/npm/pnpm are allowed and shell metacharacters are blocked.',
+            'Command denied by policy. Only bun/bunx/node/npm/pnpm are allowed. ' +
+            'Do not use shell operators (cd, &&, |, >, ;). Use the `cwd` option instead. ' +
+            'Do not prefix env vars like FOO=bar; use the `envs` option instead.',
         }
       }
 
       try {
         const res = await params.sandbox.commands.run(parsed.data.cmd, {
           cwd: parsed.data.cwd ?? params.defaultCwd,
+          envs: parsed.data.envs,
           timeoutMs: parsed.data.timeoutMs,
         })
 
@@ -67,7 +71,7 @@ export function createSandboxCmdTool(params: {
     {
       name: 'sandbox_cmd',
       description:
-        'Run a limited set of package/dev commands inside the E2B sandbox (bun/bunx/node/npm/pnpm).',
+        'Run a limited set of package/dev commands inside the E2B sandbox (bun/bunx/node/npm/pnpm). Supports `cwd` and `envs`.',
       schema: sandboxCmdSchema as any,
     }
   )
