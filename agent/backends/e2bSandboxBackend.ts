@@ -16,6 +16,23 @@ interface E2BSandboxBackendOptions {
   rootDir: string
 }
 
+const DENIED_DIR_SEGMENTS = new Set([
+  '.git',
+  'node_modules',
+  '.next',
+  'dist',
+  'build',
+  'coverage',
+  '.turbo',
+  '.cache',
+  '.bun',
+  '.npm',
+  '.yarn',
+  '.pnpm-store',
+  '.vscode',
+  '.idea',
+])
+
 function parseBoundedInt(raw: string | undefined, fallback: number, min: number, max: number) {
   const n = raw ? Number(raw) : NaN
   if (!Number.isFinite(n)) return fallback
@@ -64,6 +81,12 @@ function toVirtualPath(p: string) {
   return normalized.startsWith('/') ? normalized : `/${normalized}`
 }
 
+function isDeniedVirtualPath(virtualPath: string) {
+  const cleaned = toPosix(virtualPath)
+  const segments = cleaned.split('/').filter(Boolean)
+  return segments.some((seg) => DENIED_DIR_SEGMENTS.has(seg))
+}
+
 export class E2BSandboxBackend implements BackendProtocol {
   private rootDir: string
   private encoder = new TextEncoder()
@@ -81,6 +104,12 @@ export class E2BSandboxBackend implements BackendProtocol {
 
   private shellQuote(value: string) {
     return `'${value.replace(/'/g, `'\\''`)}'`
+  }
+
+  private findPruneDirsClause() {
+    // Prune common large/irrelevant folders to avoid huge scans and slow tool calls.
+    const names = [...DENIED_DIR_SEGMENTS].map((name) => `-name ${this.shellQuote(name)}`)
+    return names.length ? `\\( ${names.join(' -o ')} \\) -prune -o` : ''
   }
 
   private async sleep(ms: number) {
@@ -146,6 +175,7 @@ export class E2BSandboxBackend implements BackendProtocol {
   }
 
   async lsInfo(virtualPath = '/'): Promise<FileInfo[]> {
+    if (isDeniedVirtualPath(virtualPath)) return []
     const sandboxPath = this.toSandboxPath(virtualPath)
     const dir = this.shellQuote(sandboxPath)
     const cmd = `if [ -d ${dir} ]; then ls -a -p ${dir}; fi`
@@ -154,6 +184,10 @@ export class E2BSandboxBackend implements BackendProtocol {
       .split(/\r?\n/)
       .map((line) => line.trim())
       .filter((line) => line && line !== '.' && line !== '..')
+      .filter((line) => {
+        const name = line.endsWith('/') ? line.slice(0, -1) : line
+        return !DENIED_DIR_SEGMENTS.has(name)
+      })
 
     const result: FileInfo[] = entries.map((entry) => {
       const isDir = entry.endsWith('/')
@@ -172,6 +206,9 @@ export class E2BSandboxBackend implements BackendProtocol {
   }
 
   async read(virtualPath: string, offset = 0, limit = 2000): Promise<string> {
+    if (isDeniedVirtualPath(virtualPath)) {
+      return `Error: Access to '${virtualPath}' is denied (protected directory).`
+    }
     const sandboxPath = this.toSandboxPath(virtualPath)
     const file = this.shellQuote(sandboxPath)
     const start = offset + 1
@@ -185,6 +222,9 @@ export class E2BSandboxBackend implements BackendProtocol {
   }
 
   async readRaw(virtualPath: string): Promise<FileData> {
+    if (isDeniedVirtualPath(virtualPath)) {
+      throw new Error(`Access to '${virtualPath}' is denied (protected directory).`)
+    }
     const sandboxPath = this.toSandboxPath(virtualPath)
     const file = this.shellQuote(sandboxPath)
     const out = await this.runAllowFailure(`if [ -f ${file} ]; then cat ${file}; else echo '__ENOENT__'; fi`)
@@ -200,6 +240,9 @@ export class E2BSandboxBackend implements BackendProtocol {
   }
 
   async write(virtualPath: string, content: string): Promise<WriteResult> {
+    if (isDeniedVirtualPath(virtualPath)) {
+      return { error: `Cannot write to ${virtualPath} (protected directory).` }
+    }
     const sandboxPath = this.toSandboxPath(virtualPath)
     const file = this.shellQuote(sandboxPath)
     const dir = this.shellQuote(path.posix.dirname(sandboxPath))
@@ -216,6 +259,9 @@ export class E2BSandboxBackend implements BackendProtocol {
   }
 
   async edit(virtualPath: string, oldString: string, newString: string, replaceAll = false): Promise<EditResult> {
+    if (isDeniedVirtualPath(virtualPath)) {
+      return { error: `Error: Cannot edit ${virtualPath} (protected directory).` }
+    }
     if (!oldString) {
       return { error: 'Error: oldString must not be empty.' }
     }
@@ -256,14 +302,16 @@ export class E2BSandboxBackend implements BackendProtocol {
   }
 
   async globInfo(pattern: string, virtualPath = '/'): Promise<FileInfo[]> {
+    if (isDeniedVirtualPath(virtualPath)) return []
     const sandboxPath = this.toSandboxPath(virtualPath)
     const relPattern = pattern.replace(/^\/+/, '')
     const patterns = expandBracePattern(relPattern)
 
     const lines: string[] = []
+    const prune = this.findPruneDirsClause()
     for (const ptn of patterns) {
       const pathMatcher = this.shellQuote(`./${ptn}`)
-      const cmd = `cd ${this.shellQuote(sandboxPath)} && find . -path ${pathMatcher} -print0 | while IFS= read -r -d '' p; do if [ -d \"$p\" ]; then t=dir; else t=file; fi; echo \"$p|$t\"; done`
+      const cmd = `cd ${this.shellQuote(sandboxPath)} && find . ${prune} -path ${pathMatcher} -print0 | while IFS= read -r -d '' p; do if [ -d \"$p\" ]; then t=dir; else t=file; fi; echo \"$p|$t\"; done`
       const output = await this.runAllowFailure(cmd)
       for (const line of output.split(/\r?\n/)) {
         const trimmed = line.trim()
@@ -280,10 +328,11 @@ export class E2BSandboxBackend implements BackendProtocol {
       const virtual = toVirtualPath(joined)
       const isDir = type === 'dir'
       const finalPath = isDir && !virtual.endsWith('/') ? `${virtual}/` : virtual
+      if (isDeniedVirtualPath(finalPath)) return []
       if (seen.has(finalPath)) return []
       seen.add(finalPath)
       return [{
-        path: isDir && !virtual.endsWith('/') ? `${virtual}/` : virtual,
+        path: finalPath,
         is_dir: isDir,
         size: 0,
         modified_at: '',
@@ -295,23 +344,25 @@ export class E2BSandboxBackend implements BackendProtocol {
   }
 
   async grepRaw(pattern: string, virtualPath = '/', globPattern?: string): Promise<GrepMatch[] | string> {
+    if (isDeniedVirtualPath(virtualPath)) return []
     const sandboxPath = this.toSandboxPath(virtualPath)
     const regex = this.shellQuote(pattern)
     const relGlob = (globPattern ?? '').replace(/^\/+/, '')
+    const prune = this.findPruneDirsClause()
     let cmd = ''
     if (relGlob) {
       const patterns = expandBracePattern(relGlob)
       if (patterns.length === 1) {
         const globMatcher = this.shellQuote(`./${patterns[0]}`)
-        cmd = `cd ${this.shellQuote(sandboxPath)} && find . -type f -path ${globMatcher} -print0 | xargs -0 grep -n -E ${regex} || true`
+        cmd = `cd ${this.shellQuote(sandboxPath)} && find . ${prune} -type f -path ${globMatcher} -print0 | xargs -0 grep -n -E ${regex} || true`
       } else {
         const findExpr = patterns
           .map((ptn) => `-path ${this.shellQuote(`./${ptn}`)}`)
           .join(' -o ')
-        cmd = `cd ${this.shellQuote(sandboxPath)} && find . -type f \\( ${findExpr} \\) -print0 | xargs -0 grep -n -E ${regex} || true`
+        cmd = `cd ${this.shellQuote(sandboxPath)} && find . ${prune} -type f \\( ${findExpr} \\) -print0 | xargs -0 grep -n -E ${regex} || true`
       }
     } else {
-      cmd = `cd ${this.shellQuote(sandboxPath)} && grep -R -n -E ${regex} . || true`
+      cmd = `cd ${this.shellQuote(sandboxPath)} && find . ${prune} -type f -print0 | xargs -0 grep -n -E ${regex} || true`
     }
 
     const output = await this.runAllowFailure(cmd)
