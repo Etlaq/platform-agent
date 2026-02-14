@@ -188,7 +188,8 @@ export class E2BSandboxBackend implements BackendProtocol {
   async globInfo(pattern: string, virtualPath = '/'): Promise<FileInfo[]> {
     const sandboxPath = this.toSandboxPath(virtualPath)
     const relPattern = pattern.replace(/^\/+/, '')
-    const cmd = `cd ${this.shellQuote(sandboxPath)} && find . -path './${relPattern}' -print0 | while IFS= read -r -d '' p; do if [ -d \"$p\" ]; then t=dir; else t=file; fi; echo \"$p|$t\"; done`
+    const pathMatcher = this.shellQuote(`./${relPattern}`)
+    const cmd = `cd ${this.shellQuote(sandboxPath)} && find . -path ${pathMatcher} -print0 | while IFS= read -r -d '' p; do if [ -d \"$p\" ]; then t=dir; else t=file; fi; echo \"$p|$t\"; done`
     const output = await this.runAllowFailure(cmd)
     const lines = output
       .split(/\r?\n/)
@@ -219,7 +220,8 @@ export class E2BSandboxBackend implements BackendProtocol {
     const relGlob = (globPattern ?? '').replace(/^\/+/, '')
     let cmd = ''
     if (relGlob) {
-      cmd = `cd ${this.shellQuote(sandboxPath)} && find . -path './${relGlob}' -type f -print0 | xargs -0 grep -n -E ${regex} || true`
+      const globMatcher = this.shellQuote(`./${relGlob}`)
+      cmd = `cd ${this.shellQuote(sandboxPath)} && find . -path ${globMatcher} -type f -print0 | xargs -0 grep -n -E ${regex} || true`
     } else {
       cmd = `cd ${this.shellQuote(sandboxPath)} && grep -R -n -E ${regex} . || true`
     }

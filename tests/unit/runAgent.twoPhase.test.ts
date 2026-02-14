@@ -1,4 +1,4 @@
-import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'bun:test'
 
 const invokeMock = vi.fn()
 const createDeepAgentMock = vi.fn(() => ({ invoke: invokeMock }))

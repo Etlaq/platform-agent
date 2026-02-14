@@ -1,4 +1,4 @@
-import { beforeEach, describe, expect, it, vi } from 'vitest'
+import { beforeEach, describe, expect, it, vi } from 'bun:test'
 
 interface PersistedEvent {
   id: number
@@ -55,6 +55,7 @@ const completeRunMock = vi.fn(async (_runId: string, _output: string, _meta?: un
 const failRunMock = vi.fn(async (_runId: string, _error: string) => undefined)
 const getJobByRunIdMock = vi.fn(async (_runId: string) => ({ attempts: 0, maxAttempts: 3 }))
 const getRunMock = vi.fn(async (_runId: string) => null as RunRecordShape | null)
+const claimRunForExecutionMock = vi.fn(async (_runId: string) => true)
 const insertEventWithNextSeqMock = vi.fn(async ({ type, payload }: InsertEventParams) => {
   const maxId = persistedEvents.reduce((m, event) => Math.max(m, event.id), 0)
   const maxSeq = persistedEvents.reduce((m, event) => Math.max(m, event.seq), 0)
@@ -109,6 +110,7 @@ vi.mock('encore.dev/pubsub', () => {
 
 vi.mock('../../data/db', () => ({
   cancelJobByRunId: cancelJobByRunIdMock,
+  claimRunForExecution: claimRunForExecutionMock,
   completeRun: completeRunMock,
   failRun: failRunMock,
   getJobByRunId: getJobByRunIdMock,
@@ -180,7 +182,6 @@ function timelineLabelFromEvent(event: PersistedEvent) {
 
 describe('worker queue event lifecycle', () => {
   beforeEach(() => {
-    vi.resetModules()
     persistedEvents.length = 0
     subscriptionHandler = null
 
@@ -190,6 +191,7 @@ describe('worker queue event lifecycle', () => {
     failRunMock.mockClear()
     getJobByRunIdMock.mockReset()
     getRunMock.mockReset()
+    claimRunForExecutionMock.mockClear()
     insertEventWithNextSeqMock.mockClear()
     markJobFailedMock.mockClear()
     queueRunForRetryMock.mockClear()
@@ -240,7 +242,7 @@ describe('worker queue event lifecycle', () => {
     getJobByRunIdMock.mockResolvedValue({ attempts: 0, maxAttempts: 3 })
     seedQueuedEvent()
 
-    await import('../../worker/queue')
+    await import('../../worker/queue?queue-event-lifecycle-unit')
     expect(subscriptionHandler).not.toBeNull()
 
     await subscriptionHandler?.({ runId })

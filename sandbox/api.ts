@@ -86,6 +86,10 @@ interface SandboxStopResponse {
   killSandbox: boolean
 }
 
+function shellQuote(value: string) {
+  return `'${value.replace(/'/g, `'\\''`)}'`
+}
+
 export const exec = api(
   { method: 'POST', path: '/exec', expose: true, auth: true },
   async (payload: ExecRequest): Promise<ExecResponse> => {
@@ -229,7 +233,7 @@ export const sandboxDevStart = api(
       }
     }
 
-    const cmd = `cd ${appDir} && PORT=${port} HOST=0.0.0.0 bun run dev -- --hostname 0.0.0.0 --port ${port}`
+    const cmd = `cd ${shellQuote(appDir)} && PORT=${port} HOST=0.0.0.0 bun run dev -- --hostname 0.0.0.0 --port ${port}`
     const handle = (await sb.commands.run(cmd, { background: true })) as any
 
     return {

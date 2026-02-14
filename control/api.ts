@@ -33,7 +33,7 @@ interface CapabilitiesResponse {
 }
 
 export const root = api(
-  { method: 'GET', path: '/', expose: true },
+  { method: 'GET', path: '/', expose: true, auth: true },
   async (): Promise<RootResponse> => ({
     name: 'etlaq-agent-backend-v2',
     status: 'ok',
@@ -61,7 +61,7 @@ export const health = api(
 )
 
 export const capabilities = api(
-  { method: 'GET', path: '/capabilities', expose: true },
+  { method: 'GET', path: '/capabilities', expose: true, auth: true },
   async (): Promise<CapabilitiesResponse> => ({
     name: readPackageName(),
     actions: [...CAPABILITY_ACTIONS],

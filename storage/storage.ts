@@ -44,14 +44,15 @@ export async function syncRollbackManifest(runId: string) {
   const rollbackRoot = getRollbackRoot()
   const manifestPath = RollbackManager.manifestPath({ runId, rollbackRoot })
   const raw = await fs.promises.readFile(manifestPath, 'utf8')
-  await putJsonObject(rollbackManifestKey(runId), JSON.parse(raw))
+  const parsed = RollbackManager.parseManifest(raw, runId)
+  await putJsonObject(rollbackManifestKey(runId), parsed)
 }
 
 export async function readRollbackManifestFromDisk(runId: string) {
   const rollbackRoot = getRollbackRoot()
   const manifestPath = RollbackManager.manifestPath({ runId, rollbackRoot })
   const raw = await fs.promises.readFile(manifestPath, 'utf8')
-  return JSON.parse(raw)
+  return RollbackManager.parseManifest(raw, runId)
 }
 
 export function rollbackRootPath() {

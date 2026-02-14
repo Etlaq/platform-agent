@@ -1,5 +1,5 @@
 import { EventEmitter } from 'node:events'
-import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'bun:test'
 
 interface MockChild extends EventEmitter {
   stdout: EventEmitter
@@ -42,6 +42,13 @@ vi.mock('../../agent/runtime/config', () => ({
   resolveWorkspaceRoot: () => process.cwd(),
 }))
 
+let moduleSeq = 0
+
+async function loadGitCommitModule() {
+  moduleSeq += 1
+  return import(`../../worker/gitCommit?worker-git-commit-${moduleSeq}`)
+}
+
 describe('worker/gitCommit', () => {
   const originalEnv = { ...process.env }
 
@@ -57,14 +64,14 @@ describe('worker/gitCommit', () => {
 
   it('skips when auto git commit is disabled', async () => {
     process.env.AUTO_GIT_COMMIT = 'false'
-    const { commitRunToGit } = await import('../../worker/gitCommit')
+    const { commitRunToGit } = await loadGitCommitModule()
     const result = await commitRunToGit({ runId: 'run-disabled', workspaceBackend: 'host' })
     expect(result).toEqual({ ok: false, skipped: 'disabled' })
     expect(spawnMock).not.toHaveBeenCalled()
   })
 
   it('skips for non-host workspace backends', async () => {
-    const { commitRunToGit } = await import('../../worker/gitCommit')
+    const { commitRunToGit } = await loadGitCommitModule()
     const result = await commitRunToGit({ runId: 'run-e2b', workspaceBackend: 'e2b' })
     expect(result).toEqual({ ok: false, skipped: 'non_host_workspace' })
     expect(spawnMock).not.toHaveBeenCalled()
@@ -72,7 +79,7 @@ describe('worker/gitCommit', () => {
 
   it('returns skipped when workspace is not a git repo', async () => {
     spawnQueue.push({ code: 1, stderr: 'not a git repo' })
-    const { commitRunToGit } = await import('../../worker/gitCommit')
+    const { commitRunToGit } = await loadGitCommitModule()
     const result = await commitRunToGit({ runId: 'run-not-repo', workspaceBackend: 'host' })
     expect(result).toEqual({ ok: false, skipped: 'not_git_repo' })
     expect(spawnMock).toHaveBeenCalledTimes(1)
@@ -88,7 +95,7 @@ describe('worker/gitCommit', () => {
       { code: 0, stdout: 'abc123def456\n' }, // rev-parse HEAD
     )
 
-    const { commitRunToGit } = await import('../../worker/gitCommit')
+    const { commitRunToGit } = await loadGitCommitModule()
     const result = await commitRunToGit({ runId: 'run-commit', workspaceBackend: 'host' })
 
     expect(result).toEqual({
@@ -108,7 +115,7 @@ describe('worker/gitCommit', () => {
       { code: 0 }, // diff --cached --quiet (no changes)
     )
 
-    const { commitRunToGit } = await import('../../worker/gitCommit')
+    const { commitRunToGit } = await loadGitCommitModule()
     const result = await commitRunToGit({ runId: 'run-no-changes', workspaceBackend: 'host' })
 
     expect(result).toEqual({ ok: false, skipped: 'no_changes' })

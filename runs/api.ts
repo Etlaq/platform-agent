@@ -1,7 +1,7 @@
 import { api, APIError, ErrCode } from 'encore.dev/api'
 import { randomUUID } from 'node:crypto'
 import { type ServerResponse } from 'node:http'
-import { RollbackManager } from '../agent/rollback/rollbackManager'
+import { RollbackManager, type RollbackManifest } from '../agent/rollback/rollbackManager'
 import { parseJsonBody, parsePathPart, writeJson } from '../common/http'
 import {
   addArtifact,
@@ -60,7 +60,7 @@ interface CancelRunResponse {
 
 interface RollbackGetResponse {
   ok: true
-  manifest: Record<string, unknown>
+  manifest: RollbackManifest
 }
 
 interface RollbackPostResponse {
@@ -321,9 +321,14 @@ export const rollbackGet = api(
     const run = await getRun(id)
     if (!run) throw APIError.notFound('not found')
 
-    const fromBucket = await getJsonObject<Record<string, unknown>>(rollbackManifestKey(id))
+    const fromBucket = await getJsonObject<unknown>(rollbackManifestKey(id))
     if (fromBucket) {
-      return { ok: true, manifest: fromBucket }
+      try {
+        const manifest = RollbackManager.parseManifest(JSON.stringify(fromBucket), id)
+        return { ok: true, manifest }
+      } catch {
+        // Fall back to disk manifest if object storage contains stale/corrupt data.
+      }
     }
 
     try {

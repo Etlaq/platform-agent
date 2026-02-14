@@ -160,28 +160,35 @@ export async function createQueuedRun(params: {
   maxAttempts?: number
 }) {
   const maxAttempts = params.maxAttempts ?? resolveMaxJobAttempts()
+  const tx = await db.begin()
+  try {
+    await tx.exec`
+      INSERT INTO runs (id, status, prompt, input, provider, model, workspace_backend)
+      VALUES (${params.id}, 'queued', ${params.prompt}, ${params.input ?? null}::jsonb, ${params.provider ?? null}, ${params.model ?? null}, ${params.workspaceBackend ?? null})
+    `
 
-  await db.exec`
-    INSERT INTO runs (id, status, prompt, input, provider, model, workspace_backend)
-    VALUES (${params.id}, 'queued', ${params.prompt}, ${params.input ?? null}::jsonb, ${params.provider ?? null}, ${params.model ?? null}, ${params.workspaceBackend ?? null})
-  `
+    await tx.exec`
+      INSERT INTO events (run_id, seq, type, payload)
+      VALUES (${params.id}, 1, 'status', ${stringifyPayload({ status: 'queued' })}::jsonb)
+    `
 
-  await db.exec`
-    INSERT INTO events (run_id, seq, type, payload)
-    VALUES (${params.id}, 1, 'status', ${stringifyPayload({ status: 'queued' })}::jsonb)
-  `
+    await tx.exec`
+      INSERT INTO jobs (run_id, status, max_attempts)
+      VALUES (${params.id}, 'queued', ${maxAttempts})
+      ON CONFLICT (run_id)
+      DO UPDATE SET
+        status = EXCLUDED.status,
+        attempts = 0,
+        max_attempts = EXCLUDED.max_attempts,
+        next_run_at = NOW(),
+        updated_at = NOW()
+    `
 
-  await db.exec`
-    INSERT INTO jobs (run_id, status, max_attempts)
-    VALUES (${params.id}, 'queued', ${maxAttempts})
-    ON CONFLICT (run_id)
-    DO UPDATE SET
-      status = EXCLUDED.status,
-      attempts = 0,
-      max_attempts = EXCLUDED.max_attempts,
-      next_run_at = NOW(),
-      updated_at = NOW()
-  `
+    await tx.commit()
+  } catch (error) {
+    await tx.rollback().catch(() => undefined)
+    throw error
+  }
 }
 
 export async function listRuns(limit = 50, offset = 0) {
@@ -219,6 +226,47 @@ export async function updateRunStatus(id: string, status: RunStatus) {
         OR (${status} = status)
       )
   `
+}
+
+export async function claimRunForExecution(runId: string) {
+  const row = await db.queryRow<{ id: string }>`
+    WITH eligible AS (
+      SELECT r.id
+      FROM runs r
+      JOIN jobs j ON j.run_id = r.id
+      WHERE r.id = ${runId}
+        AND r.status IN ('queued', 'running')
+        AND j.status = 'queued'
+      FOR UPDATE
+    ),
+    claimed_run AS (
+      UPDATE runs
+      SET status = 'running', updated_at = NOW()
+      WHERE id IN (
+        SELECT id
+        FROM eligible
+      )
+      RETURNING id
+    ),
+    claimed_job AS (
+      UPDATE jobs
+      SET status = 'running', updated_at = NOW()
+      WHERE run_id IN (
+        SELECT id
+        FROM claimed_run
+      )
+        AND status = 'queued'
+      RETURNING run_id
+    )
+    SELECT id
+    FROM claimed_run
+    WHERE EXISTS (
+      SELECT 1
+      FROM claimed_job
+    )
+  `
+
+  return Boolean(row)
 }
 
 export async function completeRun(id: string, output: string, meta?: {

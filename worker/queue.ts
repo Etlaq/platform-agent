@@ -5,6 +5,7 @@ import {
   failRun,
   getJobByRunId,
   getRun,
+  claimRunForExecution,
   insertEventWithNextSeq,
   markJobFailed,
   queueRunForRetry,
@@ -68,8 +69,10 @@ async function processRun(runId: string) {
       return
     }
 
+    const claimed = await claimRunForExecution(runId)
+    if (!claimed) return
+
     await updateRunStatus(runId, 'running')
-    await setJobStatus(runId, 'running')
     await emit(runId, 'status', { status: 'running' })
 
     const abortController = new AbortController()

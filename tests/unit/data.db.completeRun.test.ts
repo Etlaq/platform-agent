@@ -1,4 +1,4 @@
-import { beforeEach, describe, expect, it, vi } from 'vitest'
+import { beforeEach, describe, expect, it, vi } from 'bun:test'
 
 const execMock = vi.fn(async (_strings: TemplateStringsArray, ..._values: unknown[]) => undefined)
 
@@ -25,13 +25,20 @@ vi.mock('encore.dev/storage/sqldb', () => ({
   SQLDatabase: MockSQLDatabase,
 }))
 
+let moduleSeq = 0
+
+async function loadDataDbModule() {
+  moduleSeq += 1
+  return import(`../../data/db?data-db-complete-run-${moduleSeq}`)
+}
+
 describe('data/db completeRun', () => {
   beforeEach(() => {
     execMock.mockClear()
   })
 
   it('persists resolved provider/model while keeping usage/duration writes', async () => {
-    const { completeRun } = await import('../../data/db')
+    const { completeRun } = await loadDataDbModule()
 
     await completeRun('run-1', 'final output', {
       provider: 'openai',
@@ -54,7 +61,7 @@ describe('data/db completeRun', () => {
   })
 
   it('stays backward-compatible when provider/model are omitted', async () => {
-    const { completeRun } = await import('../../data/db')
+    const { completeRun } = await loadDataDbModule()
 
     await completeRun('run-2', 'legacy output', {
       usage: {

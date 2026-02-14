@@ -1,4 +1,4 @@
-import { beforeEach, describe, expect, it, vi } from 'vitest'
+import { beforeEach, describe, expect, it, vi } from 'bun:test'
 
 interface RunView {
   id: string
@@ -47,6 +47,7 @@ const completeRunMock = vi.fn(async (
 const failRunMock = vi.fn(async (_id: string, _error: string) => undefined)
 const getJobByRunIdMock = vi.fn(async (_runId: string) => null as JobView | null)
 const getRunMock = vi.fn(async (_runId: string) => null as RunView | null)
+const claimRunForExecutionMock = vi.fn(async (_runId: string) => true)
 const insertEventWithNextSeqMock = vi.fn(async (_params: {
   runId: string
   type: string
@@ -98,6 +99,7 @@ vi.mock('encore.dev/pubsub', () => {
 
 vi.mock('../../data/db', () => ({
   cancelJobByRunId: cancelJobByRunIdMock,
+  claimRunForExecution: claimRunForExecutionMock,
   completeRun: completeRunMock,
   failRun: failRunMock,
   getJobByRunId: getJobByRunIdMock,
@@ -124,8 +126,6 @@ vi.mock('../../worker/gitCommit', () => ({
 
 describe('worker/queue completion persistence', () => {
   beforeEach(() => {
-    vi.resetModules()
-
     subscriptionHandlers.length = 0
     publishMock.mockClear()
     cancelJobByRunIdMock.mockClear()
@@ -133,6 +133,7 @@ describe('worker/queue completion persistence', () => {
     failRunMock.mockClear()
     getJobByRunIdMock.mockClear()
     getRunMock.mockClear()
+    claimRunForExecutionMock.mockClear()
     insertEventWithNextSeqMock.mockClear()
     markJobFailedMock.mockClear()
     queueRunForRetryMock.mockClear()
@@ -166,7 +167,7 @@ describe('worker/queue completion persistence', () => {
       durationMs: 640,
     })
 
-    await import('../../worker/queue')
+    await import('../../worker/queue?worker-queue-unit')
     expect(subscriptionHandlers).toHaveLength(1)
 
     await subscriptionHandlers[0]({ runId: 'run-1' })

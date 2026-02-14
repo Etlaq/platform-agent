@@ -8,15 +8,15 @@ const sandboxCmdSchema = z.object({
   timeoutMs: z.number().int().positive().optional(),
 })
 
+const ALLOWED_BINARIES = new Set(['bun', 'bunx', 'node', 'npm', 'pnpm'])
+const SHELL_META_PATTERN = /[;&|`$><(){}\n\r]/
+
 function isAllowedCommand(cmd: string) {
   const trimmed = cmd.trim()
-  return (
-    trimmed.startsWith('bun ') ||
-    trimmed.startsWith('bunx ') ||
-    trimmed.startsWith('node ') ||
-    trimmed.startsWith('npm ') ||
-    trimmed.startsWith('pnpm ')
-  )
+  if (!trimmed) return false
+  if (SHELL_META_PATTERN.test(trimmed)) return false
+  const [binary] = trimmed.split(/\s+/, 1)
+  return ALLOWED_BINARIES.has(binary)
 }
 
 export function createSandboxCmdTool(params: {
@@ -34,7 +34,7 @@ export function createSandboxCmdTool(params: {
         return {
           ok: false,
           error:
-            'Command denied by policy. Allowed prefixes: bun, bunx, node, npm, pnpm.',
+            'Command denied by policy. Only bun/bunx/node/npm/pnpm are allowed and shell metacharacters are blocked.',
         }
       }
 
