@@ -34,7 +34,7 @@ function sleep(ms: number) {
   return new Promise<void>((resolve) => setTimeout(resolve, ms))
 }
 
-function isRetryableE2BError(err: unknown) {
+export function isRetryableE2BError(err: unknown) {
   const msg = err instanceof Error ? err.message : String(err)
   const lower = msg.toLowerCase()
 
@@ -67,7 +67,7 @@ function withRequestTimeout<T extends { requestTimeoutMs?: number }>(opts?: T): 
   return requestTimeoutMs > 0 ? ({ ...opts, requestTimeoutMs } as T) : opts
 }
 
-function backoffDelayMs(attempt: number, baseDelayMs: number, maxDelayMs: number) {
+export function backoffDelayMs(attempt: number, baseDelayMs: number, maxDelayMs: number) {
   if (attempt <= 0) return 0
   const exp = Math.min(maxDelayMs, baseDelayMs * 2 ** (attempt - 1))
   const jitter = Math.floor(Math.random() * Math.min(250, Math.max(1, exp / 4)))

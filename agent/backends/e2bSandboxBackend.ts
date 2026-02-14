@@ -10,9 +10,49 @@ import type {
   GrepMatch,
   WriteResult,
 } from 'deepagents'
+import { backoffDelayMs, isRetryableE2BError } from '../../common/e2bSandbox'
 
 interface E2BSandboxBackendOptions {
   rootDir: string
+}
+
+function parseBoundedInt(raw: string | undefined, fallback: number, min: number, max: number) {
+  const n = raw ? Number(raw) : NaN
+  if (!Number.isFinite(n)) return fallback
+  return Math.max(min, Math.min(max, Math.trunc(n)))
+}
+
+function resolveE2BCmdRetryAttempts() {
+  // Total attempts, including the first attempt.
+  return parseBoundedInt(process.env.E2B_CMD_RETRY_ATTEMPTS, 3, 1, 20)
+}
+
+function resolveE2BCmdRetryBaseDelayMs() {
+  return parseBoundedInt(process.env.E2B_CMD_RETRY_BASE_DELAY_MS, 250, 0, 60_000)
+}
+
+function resolveE2BCmdRetryMaxDelayMs() {
+  return parseBoundedInt(process.env.E2B_CMD_RETRY_MAX_DELAY_MS, 2_000, 0, 5 * 60_000)
+}
+
+function shouldLogE2BCmdRetries() {
+  return (process.env.E2B_CMD_RETRY_LOG || 'false').toLowerCase() === 'true'
+}
+
+function expandBracePattern(pattern: string) {
+  const start = pattern.indexOf('{')
+  if (start === -1) return [pattern]
+  const end = pattern.indexOf('}', start + 1)
+  if (end === -1) return [pattern]
+
+  const before = pattern.slice(0, start)
+  const after = pattern.slice(end + 1)
+  const inner = pattern.slice(start + 1, end)
+  const parts = inner.split(',').map((part) => part.trim()).filter(Boolean)
+  if (parts.length === 0) return [pattern]
+
+  // Only expand the first brace group to keep complexity predictable.
+  return parts.map((part) => `${before}${part}${after}`)
 }
 
 function toPosix(p: string) {
@@ -43,22 +83,52 @@ export class E2BSandboxBackend implements BackendProtocol {
     return `'${value.replace(/'/g, `'\\''`)}'`
   }
 
+  private async sleep(ms: number) {
+    return new Promise<void>((resolve) => setTimeout(resolve, ms))
+  }
+
   private async run(cmd: string, opts?: { cwd?: string }) {
     const commands = (this.sandbox as unknown as {
       commands: {
         run: (cmd: string, opts?: Record<string, unknown>) => Promise<{ exitCode: number; stdout?: string; stderr?: string }>
       }
     }).commands
-    try {
-      return await commands.run(cmd, { cwd: opts?.cwd ?? this.rootDir })
-    } catch (err) {
-      // e2b throws on non-zero exits; recover so callers can choose how to handle it.
-      const result = (err as any)?.result
-      if (result && typeof result.exitCode === 'number') {
-        return result as { exitCode: number; stdout?: string; stderr?: string }
+
+    const attempts = resolveE2BCmdRetryAttempts()
+    const baseDelayMs = resolveE2BCmdRetryBaseDelayMs()
+    const maxDelayMs = resolveE2BCmdRetryMaxDelayMs()
+    const log = shouldLogE2BCmdRetries()
+
+    for (let attempt = 1; attempt <= attempts; attempt++) {
+      try {
+        return await commands.run(cmd, { cwd: opts?.cwd ?? this.rootDir })
+      } catch (err) {
+        // e2b throws on non-zero exits; recover so callers can choose how to handle it.
+        const result = (err as any)?.result
+        if (result && typeof result.exitCode === 'number') {
+          return result as { exitCode: number; stdout?: string; stderr?: string }
+        }
+
+        const finalAttempt = attempt >= attempts
+        if (!finalAttempt && isRetryableE2BError(err)) {
+          const delayMs = backoffDelayMs(attempt, baseDelayMs, maxDelayMs)
+          if (log) {
+            const msg = err instanceof Error ? err.message : String(err)
+            console.warn(`[e2b] sandbox command failed (attempt ${attempt}/${attempts}): ${msg}`)
+            if (delayMs > 0) console.warn(`[e2b] retrying in ${delayMs}ms`)
+          }
+          if (delayMs > 0) {
+            await this.sleep(delayMs)
+          }
+          continue
+        }
+
+        throw err
       }
-      throw err
     }
+
+    // Unreachable, but keeps TS happy.
+    throw new Error('Sandbox command failed')
   }
 
   private async runOk(cmd: string, opts?: { cwd?: string }) {
@@ -188,26 +258,36 @@ export class E2BSandboxBackend implements BackendProtocol {
   async globInfo(pattern: string, virtualPath = '/'): Promise<FileInfo[]> {
     const sandboxPath = this.toSandboxPath(virtualPath)
     const relPattern = pattern.replace(/^\/+/, '')
-    const pathMatcher = this.shellQuote(`./${relPattern}`)
-    const cmd = `cd ${this.shellQuote(sandboxPath)} && find . -path ${pathMatcher} -print0 | while IFS= read -r -d '' p; do if [ -d \"$p\" ]; then t=dir; else t=file; fi; echo \"$p|$t\"; done`
-    const output = await this.runAllowFailure(cmd)
-    const lines = output
-      .split(/\r?\n/)
-      .map((line) => line.trim())
-      .filter(Boolean)
+    const patterns = expandBracePattern(relPattern)
 
-    const result: FileInfo[] = lines.map((line) => {
+    const lines: string[] = []
+    for (const ptn of patterns) {
+      const pathMatcher = this.shellQuote(`./${ptn}`)
+      const cmd = `cd ${this.shellQuote(sandboxPath)} && find . -path ${pathMatcher} -print0 | while IFS= read -r -d '' p; do if [ -d \"$p\" ]; then t=dir; else t=file; fi; echo \"$p|$t\"; done`
+      const output = await this.runAllowFailure(cmd)
+      for (const line of output.split(/\r?\n/)) {
+        const trimmed = line.trim()
+        if (trimmed) lines.push(trimmed)
+      }
+    }
+
+    const seen = new Set<string>()
+    const result: FileInfo[] = lines.flatMap((line) => {
       const [rawPath, type] = line.split('|')
+      if (!rawPath) return []
       const rel = rawPath.replace(/^\.\/?/, '')
       const joined = path.posix.join(virtualPath, rel)
       const virtual = toVirtualPath(joined)
       const isDir = type === 'dir'
-      return {
+      const finalPath = isDir && !virtual.endsWith('/') ? `${virtual}/` : virtual
+      if (seen.has(finalPath)) return []
+      seen.add(finalPath)
+      return [{
         path: isDir && !virtual.endsWith('/') ? `${virtual}/` : virtual,
         is_dir: isDir,
         size: 0,
         modified_at: '',
-      }
+      }]
     })
 
     result.sort((a, b) => a.path.localeCompare(b.path))
@@ -220,8 +300,16 @@ export class E2BSandboxBackend implements BackendProtocol {
     const relGlob = (globPattern ?? '').replace(/^\/+/, '')
     let cmd = ''
     if (relGlob) {
-      const globMatcher = this.shellQuote(`./${relGlob}`)
-      cmd = `cd ${this.shellQuote(sandboxPath)} && find . -path ${globMatcher} -type f -print0 | xargs -0 grep -n -E ${regex} || true`
+      const patterns = expandBracePattern(relGlob)
+      if (patterns.length === 1) {
+        const globMatcher = this.shellQuote(`./${patterns[0]}`)
+        cmd = `cd ${this.shellQuote(sandboxPath)} && find . -type f -path ${globMatcher} -print0 | xargs -0 grep -n -E ${regex} || true`
+      } else {
+        const findExpr = patterns
+          .map((ptn) => `-path ${this.shellQuote(`./${ptn}`)}`)
+          .join(' -o ')
+        cmd = `cd ${this.shellQuote(sandboxPath)} && find . -type f \\( ${findExpr} \\) -print0 | xargs -0 grep -n -E ${regex} || true`
+      }
     } else {
       cmd = `cd ${this.shellQuote(sandboxPath)} && grep -R -n -E ${regex} . || true`
     }
