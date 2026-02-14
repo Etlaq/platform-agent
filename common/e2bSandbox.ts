@@ -20,6 +20,12 @@ function resolveE2BRetryMaxDelayMs() {
   return parseBoundedInt(process.env.E2B_RETRY_MAX_DELAY_MS, 8_000, 0, 5 * 60_000)
 }
 
+function resolveE2BRequestTimeoutMs() {
+  // Applies to E2B API calls and long-lived operations initiated via the SDK.
+  // E2B SDK defaults to 60s, which can be too aggressive for installs/builds/zips.
+  return parseBoundedInt(process.env.E2B_REQUEST_TIMEOUT_MS, 5 * 60_000, 0, 60 * 60_000)
+}
+
 function shouldLogE2BRetries() {
   return (process.env.E2B_RETRY_LOG || 'false').toLowerCase() === 'true'
 }
@@ -35,8 +41,10 @@ function isRetryableE2BError(err: unknown) {
   // Node's fetch (undici) failures.
   if (lower.includes('fetch failed')) return true
   if (lower.includes('connect timeout')) return true
+  if (lower.includes('request timed out')) return true
   if (lower.includes('socket hang up')) return true
   if (lower.includes('econnreset')) return true
+  if (lower.includes('econnrefused')) return true
   if (lower.includes('etimedout')) return true
   if (lower.includes('enotfound')) return true
   if (lower.includes('eai_again')) return true
@@ -48,6 +56,15 @@ function isRetryableE2BError(err: unknown) {
   if (lower.includes('504') || lower.includes('gateway timeout')) return true
 
   return false
+}
+
+function withRequestTimeout<T extends { requestTimeoutMs?: number }>(opts?: T): T | undefined {
+  const requestTimeoutMs = resolveE2BRequestTimeoutMs()
+  if (!opts) {
+    return requestTimeoutMs > 0 ? ({ requestTimeoutMs } as T) : undefined
+  }
+  if (typeof opts.requestTimeoutMs === 'number') return opts
+  return requestTimeoutMs > 0 ? ({ ...opts, requestTimeoutMs } as T) : opts
 }
 
 function backoffDelayMs(attempt: number, baseDelayMs: number, maxDelayMs: number) {
@@ -89,10 +106,11 @@ async function withE2BRetries<T>(label: string, fn: () => Promise<T>): Promise<T
 }
 
 export async function createSandboxWithRetry(template: string, opts?: SandboxOpts): Promise<Sandbox> {
-  return await withE2BRetries('Sandbox.create', async () => Sandbox.create(template, opts))
+  const merged = withRequestTimeout(opts)
+  return await withE2BRetries('Sandbox.create', async () => Sandbox.create(template, merged))
 }
 
 export async function connectSandboxWithRetry(sandboxId: string, opts?: SandboxConnectOpts): Promise<Sandbox> {
-  return await withE2BRetries('Sandbox.connect', async () => Sandbox.connect(sandboxId, opts))
+  const merged = withRequestTimeout(opts)
+  return await withE2BRetries('Sandbox.connect', async () => Sandbox.connect(sandboxId, merged))
 }
-
