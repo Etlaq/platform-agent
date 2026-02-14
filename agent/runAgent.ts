@@ -15,6 +15,7 @@ import { E2BSandboxBackend } from './backends/e2bSandboxBackend'
 import { createProjectActionsTool } from './tools/projectActions'
 import { createSandboxCmdTool } from './tools/sandboxCmd'
 import { Sandbox } from '@e2b/code-interpreter'
+import { createSandboxWithRetry } from '../common/e2bSandbox'
 import { appendAgentsNote, ensureAgentsMd, loadAgentsMdTemplate } from './agentsMd'
 import {
   extractSandboxCmd,
@@ -434,9 +435,9 @@ export async function runAgent(params: AgentRunInput): Promise<{
 
     const timeoutRaw = process.env.E2B_SANDBOX_TIMEOUT_MS
     const timeoutMs = timeoutRaw ? Number(timeoutRaw) : NaN
-    sandbox = await Sandbox.create(
+    sandbox = await createSandboxWithRetry(
       template,
-      Number.isFinite(timeoutMs) ? { timeoutMs } : undefined
+      Number.isFinite(timeoutMs) ? { timeoutMs } : undefined,
     )
     sandboxId = (sandbox as any).sandboxId
 

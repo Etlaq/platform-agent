@@ -1,0 +1,22 @@
+Build a fully functional bilingual (Arabic first, English available) fitness coaching web app demo.
+
+Constraints:
+- No external services/APIs.
+- Do not hotlink images. Include coach and workout illustrations locally under public/images/.
+- Persist user profile, workouts, and progress in browser storage.
+
+Features:
+- Onboarding (demo): goals, experience, available equipment, weekly schedule.
+- Dashboard: today's workout, weekly calendar, streaks, and progress highlights.
+- Workouts library: search + filters (difficulty, duration, equipment), and workout detail pages.
+- Workout player: timer, sets/reps checklist, rest timer, and "mark complete".
+- Progress: track body measurements (demo), personal bests (demo), and completion history.
+- Meal ideas (demo): meal cards with macros and shopping list generator (local).
+- Settings/help: language toggle and "Reset demo data".
+
+Content and localization:
+- Seed at least 18 workouts with Arabic-first names/instructions + good English translations.
+- Default Arabic; RTL/LTR switching.
+
+UX quality:
+- Responsive, accessible, and clear empty/loading states.

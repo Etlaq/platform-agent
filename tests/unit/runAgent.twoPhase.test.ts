@@ -1,4 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'bun:test'
+import fs from 'node:fs'
+import os from 'node:os'
+import path from 'node:path'
 
 const invokeMock = vi.fn()
 const createDeepAgentMock = vi.fn(() => ({ invoke: invokeMock }))
@@ -72,6 +75,7 @@ vi.mock('../../agent/runtime/mcp', () => ({
 
 describe('runAgent two-phase flow', () => {
   const originalEnv = { ...process.env }
+  let tmpRuntimeRoot: string | null = null
 
   beforeEach(() => {
     invokeMock.mockReset()
@@ -84,6 +88,12 @@ describe('runAgent two-phase flow', () => {
       SEED_AGENTS_MD: 'false',
       ALLOW_HOST_INSTALLS: 'false',
     }
+
+    tmpRuntimeRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'agent-v2-test-'))
+    process.env.MEMORY_DIR = path.join(tmpRuntimeRoot, 'memories')
+    process.env.SKILLS_DIR = path.join(tmpRuntimeRoot, 'skills')
+    process.env.ROLLBACK_DIR = path.join(tmpRuntimeRoot, 'rollbacks')
+
     delete process.env.E2B_API_KEY
     delete process.env.E2B_TEMPLATE
     delete process.env.AUTO_LINT_AFTER_BUILD
@@ -92,6 +102,10 @@ describe('runAgent two-phase flow', () => {
 
   afterEach(() => {
     process.env = { ...originalEnv }
+    if (tmpRuntimeRoot) {
+      fs.rmSync(tmpRuntimeRoot, { recursive: true, force: true })
+      tmpRuntimeRoot = null
+    }
   })
 
   it('parses JSON plan output', async () => {

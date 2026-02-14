@@ -1,6 +1,7 @@
 import { Sandbox } from '@e2b/code-interpreter'
 import { tool } from 'langchain'
 import { e2bToolSchema, type E2BToolInput } from './e2bSchema'
+import { createSandboxWithRetry } from '../../common/e2bSandbox'
 
 export interface E2BToolOptions {
   template: string
@@ -40,7 +41,7 @@ export function createE2BTool(options: E2BToolOptions): E2BToolHandle {
 
   const getSandbox = async () => {
     if (sandbox) return sandbox
-    sandbox = await Sandbox.create(
+    sandbox = await createSandboxWithRetry(
       options.template,
       options.sandboxTimeoutMs ? { timeoutMs: options.sandboxTimeoutMs } : undefined
     )

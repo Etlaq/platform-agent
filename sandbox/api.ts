@@ -1,6 +1,7 @@
 import { api, APIError, ErrCode } from 'encore.dev/api'
 import { Sandbox } from '@e2b/code-interpreter'
 import { assertE2BConfigured, isReachable, parsePositiveInt, resolveE2BTemplate, resolveSandboxAppDir } from '../common/e2b'
+import { connectSandboxWithRetry, createSandboxWithRetry } from '../common/e2bSandbox'
 
 import '../auth/auth'
 
@@ -103,8 +104,8 @@ export const exec = api(
     const defaultCwd = resolveSandboxAppDir() || '/home/user'
 
     const sb = payload.sandboxId
-      ? await Sandbox.connect(payload.sandboxId)
-      : await Sandbox.create(template)
+      ? await connectSandboxWithRetry(payload.sandboxId)
+      : await createSandboxWithRetry(template)
 
     const sandboxId = (sb as any).sandboxId ?? payload.sandboxId ?? null
     const nextUrl = `https://${sb.getHost(3000)}`
@@ -163,7 +164,7 @@ export const sandboxCreate = api(
     const template = resolveE2BTemplate(payload.template)
     const timeoutMs = payload.timeoutMs && payload.timeoutMs > 0 ? payload.timeoutMs : undefined
 
-    const sb = await Sandbox.create(
+    const sb = await createSandboxWithRetry(
       template,
       timeoutMs ? { timeoutMs } : undefined,
     )
@@ -188,7 +189,7 @@ export const sandboxInfo = api(
   async ({ sandboxId }: SandboxInfoRequest): Promise<SandboxInfoResponse> => {
     assertE2BConfigured()
 
-    const sb = await Sandbox.connect(sandboxId)
+    const sb = await connectSandboxWithRetry(sandboxId)
     const running = await sb.isRunning().catch(() => false)
     const commands = await sb.commands.list().catch(() => [])
 
@@ -218,8 +219,8 @@ export const sandboxDevStart = api(
     const appDir = resolveSandboxAppDir()
 
     const sb = payload.sandboxId
-      ? await Sandbox.connect(payload.sandboxId)
-      : await Sandbox.create(template)
+      ? await connectSandboxWithRetry(payload.sandboxId)
+      : await createSandboxWithRetry(template)
 
     const url = `https://${sb.getHost(port)}`
     if (await isReachable(url, 2500)) {
@@ -253,7 +254,7 @@ export const sandboxDevStop = api(
   async (payload: SandboxStopRequest): Promise<SandboxStopResponse> => {
     assertE2BConfigured()
 
-    const sb = await Sandbox.connect(payload.sandboxId)
+    const sb = await connectSandboxWithRetry(payload.sandboxId)
     const killed = await sb.commands.kill(payload.pid).catch(() => false)
 
     if (payload.killSandbox) {

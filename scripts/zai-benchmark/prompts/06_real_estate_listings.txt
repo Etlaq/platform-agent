@@ -1,0 +1,22 @@
+Build a fully functional bilingual (Arabic first, English available) real estate listings website demo.
+
+Constraints:
+- No external services/APIs. Use seeded local data.
+- Do not hotlink images. Include listing photos locally under public/images/.
+- Persist saved listings and comparison list in browser storage.
+
+Features:
+- Home: featured neighborhoods, featured listings, and a quick search widget.
+- Listings: search + filters (city, neighborhood, price range, bedrooms, bathrooms, property type, amenities).
+- Listing details: photo gallery, key facts, floor plan image (local, can be schematic), amenities, nearby highlights (demo), and a contact form (demo).
+- Map view (demo, offline): show listings on a simple illustrated map image with clickable pins and a list synced to selection.
+- Save/favorites: save listings and manage them on a Saved page.
+- Compare: compare up to 3 listings side-by-side.
+- Agents: directory of agents with profiles and contact forms (demo).
+
+Content and localization:
+- Seed at least 20 listings across 3 cities and multiple neighborhoods with realistic details and pricing.
+- Arabic-first content + good English translations; default Arabic with RTL/LTR switching.
+
+UX quality:
+- Clear navigation, empty/loading states, and a settings/help page with "Reset demo data".

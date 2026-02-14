@@ -1,0 +1,24 @@
+Build a fully functional bilingual (Arabic first, English available) fashion ecommerce store demo.
+
+Constraints:
+- No external services/APIs. All data is local and seeded.
+- Do not hotlink images. Add product images locally under public/images/ and use them in the catalog.
+- Persist cart, wishlist, and orders in browser storage.
+
+Catalog features:
+- Home: featured collections, seasonal banner, best sellers, and new arrivals.
+- Product listing: search, filters (category, size, color, price range, rating), and sort (featured, price, newest).
+- Product details: image gallery, variants (size + color), stock indicator, reviews summary, and recommended items.
+- Wishlist: add/remove products; dedicated wishlist page.
+- Cart: quantity updates, remove items, shipping estimator (demo), and coupon codes (demo).
+- Checkout (demo but end-to-end): shipping address form, delivery method selection, payment method selection (no real payments), and order review.
+- Orders: order confirmation page, and an Orders page showing past orders with statuses (processing, shipped, delivered) and line items.
+
+Content and localization:
+- Seed at least 24 products across multiple categories (e.g., abayas, jackets, sneakers, accessories), with Arabic-first names/descriptions and good English translations.
+- Seed at least 3 collections (e.g., "رمضان", "العمل", "الرياضة") with local hero images.
+- Default language Arabic; layout switches RTL/LTR with language.
+
+UX quality:
+- Responsive layout, accessible forms, and clear empty/loading states.
+- A Help page that explains how demo data and persistence works, plus a "Reset demo data" button.

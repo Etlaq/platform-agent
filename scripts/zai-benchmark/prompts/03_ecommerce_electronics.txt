@@ -1,0 +1,24 @@
+Build a fully functional bilingual (Arabic first, English available) electronics ecommerce store demo.
+
+Constraints:
+- No external services/APIs. Everything works with seeded local data.
+- Do not hotlink images. Include product images locally under public/images/.
+- Persist compare list, cart, and orders in browser storage.
+
+Core features:
+- Home: featured deals, categories, and "compare top picks" section.
+- Category browsing: phones, laptops, headphones, smart home, accessories (at least 5 categories).
+- Search: fast search with suggestions (demo), and recent searches.
+- Filters: price range, brand, rating, availability, and key specs per category (e.g., RAM/storage for laptops).
+- Product page: spec table, highlight chips, warranty info (demo), reviews (seeded), and Q&A (local, stored).
+- Compare: compare up to 4 products side-by-side with spec differences highlighted.
+- Cart + checkout: complete flow (demo payments), order confirmation, and order history with statuses.
+
+Content and localization:
+- Seed at least 30 products with realistic specs (RAM, storage, battery, display, etc.) and local images.
+- All UI text and product copy must be Arabic-first with good English translations.
+- Default language Arabic; layout switches RTL/LTR with language.
+
+UX quality:
+- Great empty states (no results, empty compare, empty cart).
+- A "Reset demo data" option in settings/help.

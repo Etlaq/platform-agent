@@ -1,0 +1,20 @@
+Build a fully functional bilingual (Arabic first, English available) project management dashboard demo.
+
+Constraints:
+- No external services/APIs.
+- Persist all data in browser storage (projects, boards, tasks, settings).
+
+Features:
+- Projects: list/create/edit/archive projects; each project has members (demo) and boards.
+- Kanban board: columns, drag-and-drop tasks, task details drawer, labels, due dates, priorities, and assignees (demo).
+- Views: Board view + List view + Calendar view (demo calendar is fine).
+- Search: global search across tasks with filters (status, label, assignee, due date).
+- Activity log: show local activity events (created task, moved column, changed priority).
+- Settings/help: language toggle, and "Reset demo data".
+
+Content and localization:
+- Seed 3 projects with realistic tasks (at least 40 tasks total) and Arabic-first copy + good English translations.
+- Default Arabic; RTL/LTR switching.
+
+UX quality:
+- Clean navigation, empty states, and helpful validations.

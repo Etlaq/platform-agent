@@ -1,0 +1,26 @@
+Build a fully functional bilingual (Arabic first, English available) browser-based 3D game demo.
+
+Constraints:
+- Must run fully offline with no external services.
+- Do not hotlink images. Include any textures/posters/screenshots locally under public/images/.
+- Persist settings and high scores in browser storage.
+
+Game concept (keep it simple but polished):
+- A third-person 3D maze or arena where the player collects items before time runs out.
+- Keyboard controls (WASD/arrow keys) + optional mouse look; include an on-screen help overlay.
+- At least 3 levels with increasing difficulty, driven by seeded local level data.
+- Collectibles, a timer, scoring, and a win/lose screen.
+- Pause menu with settings (language, sound on/off, sensitivity, reset progress).
+- High scores leaderboard (local only).
+
+Pages:
+- Title screen with Play, How to Play, Settings.
+- Game screen.
+- High Scores screen.
+- Help page with "Reset demo data".
+
+Localization:
+- Arabic-first UI with good English translations; default Arabic; RTL/LTR switching where applicable.
+
+UX quality:
+- Smooth animations, clear HUD, and graceful handling if 3D rendering is not supported (show a friendly message).

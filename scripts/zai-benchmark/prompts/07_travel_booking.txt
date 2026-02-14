@@ -1,0 +1,24 @@
+Build a fully functional bilingual (Arabic first, English available) travel booking website demo.
+
+Constraints:
+- No external services/APIs.
+- Do not hotlink images. Include destination and hotel images locally under public/images/.
+- Persist saved trips and bookings in browser storage.
+
+Features:
+- Home: destination highlights, seasonal offers, and a trip search widget.
+- Search: choose destination, dates (demo), travelers count, and budget range.
+- Results: filter by trip style (family, adventure, luxury, budget), duration, rating, and inclusions.
+- Trip details: itinerary timeline (day-by-day), included/excluded, gallery, and FAQs.
+- Booking flow (demo): traveler details, add-ons selection, summary, confirm booking.
+- Bookings: manage bookings, view voucher page (demo), cancel booking (local state).
+- Saved trips: favorite destinations and trips for later.
+
+Content and localization:
+- Seed at least 15 trips across 6 destinations with Arabic-first copy + good English translations.
+- Default Arabic; RTL/LTR switching.
+- Include local images for destinations and trip cards.
+
+UX quality:
+- Clear validation and empty states.
+- Help/settings page with "Reset demo data".

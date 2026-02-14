@@ -3,6 +3,7 @@ import fs from 'node:fs'
 import path from 'node:path'
 import { Sandbox } from '@e2b/code-interpreter'
 import { assertE2BConfigured, resolveSandboxAppDir } from '../common/e2b'
+import { connectSandboxWithRetry } from '../common/e2bSandbox'
 import { parsePathPart, writeJson } from '../common/http'
 import { parseByteLimit, resolveWorkspaceRoot, toPosixRelPath } from '../common/workspace'
 import { isDeniedEnvFile, isDeniedSensitiveFile } from '../common/fileSensitivity'
@@ -282,7 +283,7 @@ export const downloadSandboxZip = api.raw(
     const appDir = resolveSandboxAppDir()
     const maxBytes = parseByteLimit(process.env.ZIP_MAX_BYTES, 250 * 1024 * 1024)
     const maxFiles = parseByteLimit(process.env.ZIP_MAX_FILES, 20_000)
-    const sb = await Sandbox.connect(id)
+    const sb = await connectSandboxWithRetry(id)
 
     let files: SandboxZipFile[]
     try {
