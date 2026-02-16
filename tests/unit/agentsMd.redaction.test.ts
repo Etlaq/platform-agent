@@ -1,7 +1,5 @@
 import { describe, expect, it } from 'bun:test'
 
-import { NOTES_END, NOTES_START, appendAgentsNote } from '../../agent/agentsMd'
-
 class MemoryBackend {
   private files = new Map<string, string>()
 
@@ -43,6 +41,9 @@ class MemoryBackend {
 
 describe('agent/agentsMd redactLikelySecrets', () => {
   it('redacts common API key/token patterns before appending notes', async () => {
+    const { NOTES_END, NOTES_START, appendAgentsNote } = await import(
+      '../../agent/agentsMd?agents-md-redaction'
+    )
     const secretZai = 'a87f5582735545d5a05aea955df87368.QgR1hSmMk3zHcCud'
     const secretBearer = 'Bearer abcdefghijklmnopqrstuvwxyz.0123456789_ABCDEFG'
 
@@ -63,4 +64,3 @@ describe('agent/agentsMd redactLikelySecrets', () => {
     expect(updated).toContain('<redacted>')
   })
 })
-

@@ -38,6 +38,8 @@ vi.mock('deepagents', () => {
 })
 
 vi.mock('../../agent/agentsMd', () => ({
+  NOTES_START: '<!-- AGENTS_NOTES_START -->',
+  NOTES_END: '<!-- AGENTS_NOTES_END -->',
   appendAgentsNote: appendAgentsNoteMock,
   ensureAgentsMd: vi.fn(async () => ({ ok: true as const })),
   loadAgentsMdTemplate: vi.fn(() => ''),

@@ -109,7 +109,7 @@ describe('runAgent two-phase flow', () => {
   })
 
   it('parses JSON plan output', async () => {
-    const { parsePlanSnapshot } = await import('../../agent/runAgent')
+    const { parsePlanSnapshot } = await import('../../agent/runAgent?run-agent-two-phase')
     const parsed = parsePlanSnapshot(
       [
         'Plan output',
@@ -126,7 +126,7 @@ describe('runAgent two-phase flow', () => {
   }, 20_000)
 
   it('falls back to markdown todo parsing when JSON is absent', async () => {
-    const { parsePlanSnapshot } = await import('../../agent/runAgent')
+    const { parsePlanSnapshot } = await import('../../agent/runAgent?run-agent-two-phase')
     const parsed = parsePlanSnapshot(
       [
         'Implementation plan',
@@ -163,7 +163,7 @@ describe('runAgent two-phase flow', () => {
       }))
 
     const events: Array<{ type: 'token' | 'tool' | 'status'; payload: unknown }> = []
-    const { runAgent } = await import('../../agent/runAgent')
+    const { runAgent } = await import('../../agent/runAgent?run-agent-two-phase')
     const result = await runAgent({
       prompt: 'Implement the feature',
       runId: 'test-run-id',
@@ -221,7 +221,7 @@ describe('runAgent two-phase flow', () => {
       }))
 
     const events: Array<{ type: 'token' | 'tool' | 'status'; payload: unknown }> = []
-    const { runAgent } = await import('../../agent/runAgent')
+    const { runAgent } = await import('../../agent/runAgent?run-agent-two-phase')
     const result = await runAgent({
       prompt: 'Ship the refactor',
       runId: 'test-run-fallback',
@@ -274,7 +274,7 @@ describe('runAgent two-phase flow', () => {
       }))
 
     const events: Array<{ type: 'token' | 'tool' | 'status'; payload: unknown }> = []
-    const { runAgent } = await import('../../agent/runAgent')
+    const { runAgent } = await import('../../agent/runAgent?run-agent-two-phase')
     await runAgent({
       prompt: 'Implement safely',
       runId: 'test-run-warning',
@@ -355,7 +355,7 @@ describe('runAgent two-phase flow', () => {
       }))
 
     const events: Array<{ type: 'token' | 'tool' | 'status'; payload: unknown }> = []
-    const { runAgent } = await import('../../agent/runAgent')
+    const { runAgent } = await import('../../agent/runAgent?run-agent-two-phase')
     await runAgent({
       prompt: 'Ship the feature',
       runId: 'test-run-auto-lint',

@@ -119,6 +119,12 @@ vi.mock('../../data/db', () => ({
 vi.mock('../../agent/runAgent', () => ({
   isRunAbortedError: isRunAbortedErrorMock,
   runAgent: runAgentMock,
+  RunAbortedError: class RunAbortedError extends Error {
+    constructor(message = 'Run aborted') {
+      super(message)
+      this.name = 'RunAbortedError'
+    }
+  },
 }))
 
 vi.mock('../../storage/storage', () => ({
