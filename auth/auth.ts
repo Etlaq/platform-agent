@@ -25,7 +25,8 @@ export function resolveAgentApiKey() {
 }
 
 interface AgentAuthParams {
-  apiKey: Header<'X-Agent-Api-Key'>
+  apiKey?: Header<'X-Agent-Api-Key'>
+  authorization?: Header<'Authorization'>
 }
 
 interface AgentAuthData {
@@ -33,10 +34,20 @@ interface AgentAuthData {
   scope: 'control-plane'
 }
 
+function parseBearerToken(value: string | null | undefined) {
+  if (typeof value !== 'string') return null
+  const trimmed = value.trim()
+  if (!trimmed) return null
+  const match = /^Bearer\s+(.+)$/i.exec(trimmed)
+  return match?.[1]?.trim() || null
+}
+
 export const agentAuth = authHandler<AgentAuthParams, AgentAuthData>(
-  async ({ apiKey }) => {
+  async ({ apiKey, authorization }) => {
     const expected = resolveAgentApiKey()
-    if (apiKey !== expected) {
+    const bearer = parseBearerToken(authorization)
+    const token = normalizeOptionalSecret(apiKey) ?? bearer
+    if (token !== expected) {
       throw APIError.unauthenticated('unauthorized')
     }
     return { userID: 'control-plane', scope: 'control-plane' }

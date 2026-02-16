@@ -77,6 +77,7 @@ const markJobFailedMock = vi.fn(async (_runId: string, _attempts: number, _delay
 const queueRunForRetryMock = vi.fn(async (_runId: string) => undefined)
 const setJobStatusMock = vi.fn(async (_runId: string, _status: string) => undefined)
 const updateRunStatusMock = vi.fn(async (_runId: string, _status: string) => undefined)
+const updateRunMetaMock = vi.fn(async (_runId: string, _meta: unknown) => undefined)
 const runAgentMock = vi.fn(async (_params: RunAgentParams) => ({
   output: 'done output',
   provider: 'openai',
@@ -119,6 +120,7 @@ vi.mock('../../data/db', () => ({
   markJobFailed: markJobFailedMock,
   queueRunForRetry: queueRunForRetryMock,
   setJobStatus: setJobStatusMock,
+  updateRunMeta: updateRunMetaMock,
   updateRunStatus: updateRunStatusMock,
 }))
 
@@ -196,6 +198,7 @@ describe('worker queue event lifecycle', () => {
     markJobFailedMock.mockClear()
     queueRunForRetryMock.mockClear()
     setJobStatusMock.mockClear()
+    updateRunMetaMock.mockClear()
     updateRunStatusMock.mockClear()
     runAgentMock.mockReset()
     syncRollbackManifestMock.mockClear()

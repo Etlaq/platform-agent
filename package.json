@@ -19,6 +19,7 @@
     "encore.dev": "^1.54.0",
     "langchain": "latest",
     "pg": "^8.18.0",
+    "undici": "^7.22.0",
     "zod": "latest"
   },
   "devDependencies": {

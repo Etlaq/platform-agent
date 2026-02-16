@@ -47,9 +47,16 @@ interface RunSummaryResponse {
   input: unknown | null
   provider: string | null
   model: string | null
+  modelSource: string | null
   output: string | null
   error: string | null
-  usage: { inputTokens: number; outputTokens: number; totalTokens: number } | null
+  usage: {
+    inputTokens: number
+    outputTokens: number
+    totalTokens: number
+    cachedInputTokens: number
+    reasoningOutputTokens: number
+  } | null
   durationMs: number | null
 }
 
@@ -243,10 +250,17 @@ export const runById = api(
       input: run.input,
       provider: run.provider,
       model: run.model,
+      modelSource: run.modelSource,
       output: run.output,
       error: run.error,
       usage: run.inputTokens != null
-        ? { inputTokens: run.inputTokens, outputTokens: run.outputTokens ?? 0, totalTokens: run.totalTokens ?? 0 }
+        ? {
+            inputTokens: run.inputTokens,
+            outputTokens: run.outputTokens ?? 0,
+            totalTokens: run.totalTokens ?? 0,
+            cachedInputTokens: run.cachedInputTokens ?? 0,
+            reasoningOutputTokens: run.reasoningOutputTokens ?? 0,
+          }
         : null,
       durationMs: run.durationMs,
     }

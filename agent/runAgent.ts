@@ -373,6 +373,8 @@ export async function runAgent(params: AgentRunInput): Promise<{
   modelSource: string
   sandboxId?: string
   usage?: { inputTokens: number; outputTokens: number; totalTokens: number }
+  cachedInputTokens?: number
+  reasoningOutputTokens?: number
   durationMs?: number
 }> {
   throwIfAborted(params.signal)
@@ -435,11 +437,43 @@ export async function runAgent(params: AgentRunInput): Promise<{
 
     const timeoutRaw = process.env.E2B_SANDBOX_TIMEOUT_MS
     const timeoutMs = timeoutRaw ? Number(timeoutRaw) : NaN
+    // E2B's SDK default sandbox timeout is too short for long-running installs/builds.
+    // If not configured, use a safer default to prevent sandboxes from closing mid-run.
+    const effectiveTimeoutMs = Number.isFinite(timeoutMs) && timeoutMs > 0 ? timeoutMs : 2 * 60 * 60_000
     sandbox = await createSandboxWithRetry(
       template,
-      Number.isFinite(timeoutMs) ? { timeoutMs } : undefined,
+      { timeoutMs: effectiveTimeoutMs },
     )
     sandboxId = (sandbox as any).sandboxId
+
+    // Ensure each sandbox ZIP contains a usable git repo + commit history (used by benchmark harness).
+    // Best-effort: never fail the run if git is unavailable in the sandbox.
+    try {
+      const git = (sandbox as unknown as { git?: unknown }).git
+      if (git && typeof (git as { init?: unknown }).init === 'function') {
+        const gitApi = git as {
+          init: (path: string) => Promise<unknown>
+          configureUser?: (name: string, email: string, opts?: { scope?: string; path?: string }) => Promise<unknown>
+          add?: (path: string, opts?: { all?: boolean }) => Promise<unknown>
+          commit?: (path: string, message: string, opts?: { allowEmpty?: boolean }) => Promise<unknown>
+        }
+        const authorName = process.env.AGENT_GIT_AUTHOR_NAME || 'Etlaq Agent'
+        const authorEmail = process.env.AGENT_GIT_AUTHOR_EMAIL || 'agent@local'
+
+        await gitApi.init(appDir).catch(() => undefined)
+        if (typeof gitApi.configureUser === 'function') {
+          await gitApi.configureUser(authorName, authorEmail, { scope: 'local', path: appDir }).catch(() => undefined)
+        }
+        if (typeof gitApi.add === 'function') {
+          await gitApi.add(appDir, { all: true }).catch(() => undefined)
+        }
+        if (typeof gitApi.commit === 'function') {
+          await gitApi.commit(appDir, 'chore: initial snapshot', { allowEmpty: true }).catch(() => undefined)
+        }
+      }
+    } catch {
+      // ignore
+    }
 
     const fsBackend = new E2BSandboxBackend(sandbox, { rootDir: appDir })
     const guarded = new GuardedVirtualBackend(fsBackend)
@@ -952,10 +986,12 @@ export async function runAgent(params: AgentRunInput): Promise<{
 
     const t1 = Date.now()
 
-    const usage = (() => {
+    const { usage, cachedInputTokens, reasoningOutputTokens } = (() => {
       let inputTokens = 0
       let outputTokens = 0
       let totalTokens = 0
+      let cachedInputTokens = 0
+      let reasoningOutputTokens = 0
 
       for (const m of messages as any[]) {
         const u = (m as any)?.usage_metadata ?? (m as any)?.usageMetadata
@@ -963,16 +999,26 @@ export async function runAgent(params: AgentRunInput): Promise<{
         const i = Number(u.input_tokens ?? u.inputTokens ?? 0)
         const o = Number(u.output_tokens ?? u.outputTokens ?? 0)
         const t = Number(u.total_tokens ?? u.totalTokens ?? 0)
+        const inputDetails = (u.input_token_details ?? u.inputTokenDetails) as any
+        const outputDetails = (u.output_token_details ?? u.outputTokenDetails) as any
+        const cached = Number(inputDetails?.cache_read ?? inputDetails?.cacheRead ?? 0)
+        const reasoning = Number(outputDetails?.reasoning ?? 0)
         if (Number.isFinite(i)) inputTokens += i
         if (Number.isFinite(o)) outputTokens += o
         if (Number.isFinite(t)) totalTokens += t
+        if (Number.isFinite(cached)) cachedInputTokens += cached
+        if (Number.isFinite(reasoning)) reasoningOutputTokens += reasoning
       }
 
       if (totalTokens === 0 && (inputTokens > 0 || outputTokens > 0)) {
         totalTokens = inputTokens + outputTokens
       }
 
-      return { inputTokens, outputTokens, totalTokens }
+      return {
+        usage: { inputTokens, outputTokens, totalTokens },
+        cachedInputTokens,
+        reasoningOutputTokens,
+      }
     })()
     const output = extractAssistantOutput(messages)
 
@@ -992,6 +1038,8 @@ export async function runAgent(params: AgentRunInput): Promise<{
               manifestPath: RollbackManager.manifestPath({ runId, rollbackRoot }),
               touchedFiles: rollback!.getTouchedFiles(),
               usage,
+              cachedInputTokens,
+              reasoningOutputTokens,
               durationMs: t1 - t0,
             }
           : {
@@ -1002,6 +1050,8 @@ export async function runAgent(params: AgentRunInput): Promise<{
               touchedFiles: touchedFiles ? Array.from(touchedFiles.values()) : [],
               lintPassed: sawSuccessfulBuildCommand ? sawSuccessfulLintCommand : null,
               usage,
+              cachedInputTokens,
+              reasoningOutputTokens,
               durationMs: t1 - t0,
             }),
       },
@@ -1018,15 +1068,50 @@ export async function runAgent(params: AgentRunInput): Promise<{
       modelSource: selection.source,
       sandboxId,
       usage,
+      cachedInputTokens,
+      reasoningOutputTokens,
       durationMs: t1 - t0,
     }
   } catch (err) {
-    if (workspaceFsBackend) {
+    // User-canceled runs should not produce "never make this mistake again" notes.
+    if (workspaceFsBackend && !isRunAbortedError(err)) {
       const msg = `run_error: ${err instanceof Error ? err.message : String(err)}`
       void appendAgentsNote({ backend: workspaceFsBackend, note: msg }).catch(() => {})
     }
     throw err
   } finally {
+    // Best-effort "final snapshot" commit for E2B workspace zips (even on cancel/error/abort).
+    // This allows external harnesses to validate version control is working inside the downloaded zip.
+    if (workspaceMode === 'e2b' && sandbox) {
+      try {
+        const appDir = process.env.SANDBOX_APP_DIR || '/home/user'
+        const git = (sandbox as unknown as { git?: unknown }).git
+        if (git && typeof (git as { init?: unknown }).init === 'function') {
+          const gitApi = git as {
+            init: (path: string) => Promise<unknown>
+            configureUser?: (name: string, email: string, opts?: { scope?: string; path?: string }) => Promise<unknown>
+            add?: (path: string, opts?: { all?: boolean }) => Promise<unknown>
+            commit?: (path: string, message: string, opts?: { allowEmpty?: boolean }) => Promise<unknown>
+          }
+          const authorName = process.env.AGENT_GIT_AUTHOR_NAME || 'Etlaq Agent'
+          const authorEmail = process.env.AGENT_GIT_AUTHOR_EMAIL || 'agent@local'
+
+          await gitApi.init(appDir).catch(() => undefined)
+          if (typeof gitApi.configureUser === 'function') {
+            await gitApi.configureUser(authorName, authorEmail, { scope: 'local', path: appDir }).catch(() => undefined)
+          }
+          if (typeof gitApi.add === 'function') {
+            await gitApi.add(appDir, { all: true }).catch(() => undefined)
+          }
+          if (typeof gitApi.commit === 'function') {
+            await gitApi.commit(appDir, `chore: snapshot run ${runId}`, { allowEmpty: true }).catch(() => undefined)
+          }
+        }
+      } catch {
+        // ignore
+      }
+    }
+
     if (mcpClient) {
       const closeFn = (mcpClient as unknown as { close?: () => Promise<void> }).close
       if (closeFn) {

@@ -13,6 +13,13 @@ const ALLOWED_WRITE_EXTS = new Set([
   '.yaml',
   '.css',
   '.scss',
+  // Allow writing local assets for offline demos.
+  '.svg',
+  '.png',
+  '.jpg',
+  '.jpeg',
+  '.webp',
+  '.ico',
 ])
 
 function extnameLower(virtualPath: string): string {

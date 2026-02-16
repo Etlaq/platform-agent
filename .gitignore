@@ -5,6 +5,9 @@ encore.gen.cue
 node_modules
 /encore.gen
 
+# local benchmark outputs
+@temp/
+
 # env & secrets
 .env
 .env.local

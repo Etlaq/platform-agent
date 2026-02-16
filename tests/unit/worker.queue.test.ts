@@ -40,7 +40,10 @@ const completeRunMock = vi.fn(async (
   _meta?: {
     provider?: string
     model?: string
+    modelSource?: string
     usage?: Usage
+    cachedInputTokens?: number
+    reasoningOutputTokens?: number
     durationMs?: number
   },
 ) => undefined)
@@ -57,6 +60,7 @@ const markJobFailedMock = vi.fn(async (_runId: string, _attempts: number, _delay
 const queueRunForRetryMock = vi.fn(async (_id: string) => undefined)
 const setJobStatusMock = vi.fn(async (_runId: string, _status: string) => undefined)
 const updateRunStatusMock = vi.fn(async (_id: string, _status: string) => undefined)
+const updateRunMetaMock = vi.fn(async (_runId: string, _meta: unknown) => undefined)
 
 const runAgentMock = vi.fn(async (_params: {
   prompt: string
@@ -108,6 +112,7 @@ vi.mock('../../data/db', () => ({
   markJobFailed: markJobFailedMock,
   queueRunForRetry: queueRunForRetryMock,
   setJobStatus: setJobStatusMock,
+  updateRunMeta: updateRunMetaMock,
   updateRunStatus: updateRunStatusMock,
 }))
 
@@ -139,6 +144,7 @@ describe('worker/queue completion persistence', () => {
     queueRunForRetryMock.mockClear()
     setJobStatusMock.mockClear()
     updateRunStatusMock.mockClear()
+    updateRunMetaMock.mockClear()
     runAgentMock.mockClear()
     isRunAbortedErrorMock.mockClear()
     syncRollbackManifestMock.mockClear()
@@ -176,7 +182,10 @@ describe('worker/queue completion persistence', () => {
     expect(completeRunMock).toHaveBeenCalledWith('run-1', 'done', {
       provider: 'openai',
       model: 'gpt-5',
+      modelSource: 'default',
       usage: { inputTokens: 15, outputTokens: 10, totalTokens: 25 },
+      cachedInputTokens: undefined,
+      reasoningOutputTokens: undefined,
       durationMs: 640,
     })
 

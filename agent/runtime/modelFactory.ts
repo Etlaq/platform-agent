@@ -2,6 +2,39 @@ import { ChatOpenAI } from '@langchain/openai'
 import { ChatAnthropic } from '@langchain/anthropic'
 import type { BaseChatModel } from '@langchain/core/language_models/chat_models'
 import type { ModelProvider } from '../provider'
+import { Agent as UndiciAgent } from 'undici'
+
+function parseTimeoutMs(raw: string | undefined) {
+  const n = raw ? Number(raw) : NaN
+  return Number.isFinite(n) ? n : NaN
+}
+
+// Some OpenAI-compatible providers (including Z.AI) can pause streaming for several minutes while
+// thinking/processing. Undici (used under the hood by Node's fetch) defaults `bodyTimeout` to 300s,
+// which surfaces as a network error with message "terminated" after 5 minutes of inactivity.
+//
+// We route provider requests through a dispatcher with a higher body timeout to prevent spurious
+// retries/cancellations on long-running codegen runs.
+const DEFAULT_AGENT_TIMEOUT_MS = 10 * 60_000
+const DEFAULT_UNDICI_TIMEOUT_MS = 30 * 60_000
+const agentTimeoutMs = parseTimeoutMs(process.env.AGENT_TIMEOUT_MS)
+const effectiveAgentTimeoutMs = Number.isFinite(agentTimeoutMs) ? agentTimeoutMs : DEFAULT_AGENT_TIMEOUT_MS
+
+const undiciBodyTimeoutMs =
+  parseTimeoutMs(process.env.UNDICI_BODY_TIMEOUT_MS) ||
+  Math.max(effectiveAgentTimeoutMs, DEFAULT_UNDICI_TIMEOUT_MS)
+const undiciHeadersTimeoutMs =
+  parseTimeoutMs(process.env.UNDICI_HEADERS_TIMEOUT_MS) || undiciBodyTimeoutMs
+
+const undiciDispatcher = new UndiciAgent({
+  bodyTimeout: undiciBodyTimeoutMs,
+  headersTimeout: undiciHeadersTimeoutMs,
+})
+
+const fetchWithUndiciTimeouts: typeof fetch = (input, init) => {
+  // `dispatcher` is an undici extension supported by Node's fetch implementation.
+  return fetch(input as any, { ...(init ?? {}), dispatcher: undiciDispatcher } as any)
+}
 
 export function normalizeModelName(provider: string, model: string) {
   // Convenience aliases for commonly referenced models.
@@ -27,10 +60,13 @@ export function createModel(provider: ModelProvider, model: string): BaseChatMod
       model: normalizedModel,
       temperature: 0,
       streaming: true,
+      streamUsage: true,
       timeout: Number.isFinite(timeoutMs) ? timeoutMs : undefined,
       maxRetries: Number.isFinite(maxRetries) ? maxRetries : undefined,
       apiKey,
-      configuration: effectiveBaseURL ? { baseURL: effectiveBaseURL } : undefined,
+      configuration: effectiveBaseURL
+        ? { baseURL: effectiveBaseURL, fetch: fetchWithUndiciTimeouts }
+        : { fetch: fetchWithUndiciTimeouts },
     })
   }
 
@@ -50,10 +86,11 @@ export function createModel(provider: ModelProvider, model: string): BaseChatMod
       model: normalizedModel,
       temperature: 0,
       streaming: true,
+      streamUsage: true,
       timeout: Number.isFinite(timeoutMs) ? timeoutMs : undefined,
       maxRetries: Number.isFinite(maxRetries) ? maxRetries : undefined,
       apiKey,
-      configuration: { baseURL },
+      configuration: { baseURL, fetch: fetchWithUndiciTimeouts },
     })
   }
 

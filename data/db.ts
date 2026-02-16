@@ -10,12 +10,15 @@ export interface RunRecord {
   input: unknown | null
   provider: string | null
   model: string | null
+  modelSource: string | null
   workspaceBackend: 'host' | 'e2b' | null
   output: string | null
   error: string | null
   inputTokens: number | null
   outputTokens: number | null
   totalTokens: number | null
+  cachedInputTokens: number | null
+  reasoningOutputTokens: number | null
   durationMs: number | null
   createdAt: string
   updatedAt: string
@@ -36,12 +39,15 @@ interface RunRow {
   input: unknown | null
   provider: string | null
   model: string | null
+  model_source: string | null
   workspace_backend: 'host' | 'e2b' | null
   output: string | null
   error: string | null
   input_tokens: number | null
   output_tokens: number | null
   total_tokens: number | null
+  cached_input_tokens: number | null
+  reasoning_output_tokens: number | null
   duration_ms: number | null
   created_at: Date | string
   updated_at: Date | string
@@ -84,12 +90,15 @@ function toRunRecord(row: RunRow): RunRecord {
     input: row.input ?? null,
     provider: row.provider ?? null,
     model: row.model ?? null,
+    modelSource: row.model_source ?? null,
     workspaceBackend: row.workspace_backend ?? null,
     output: row.output ?? null,
     error: row.error ?? null,
     inputTokens: row.input_tokens ?? null,
     outputTokens: row.output_tokens ?? null,
     totalTokens: row.total_tokens ?? null,
+    cachedInputTokens: row.cached_input_tokens ?? null,
+    reasoningOutputTokens: row.reasoning_output_tokens ?? null,
     durationMs: row.duration_ms ?? null,
     createdAt: toIsoString(row.created_at),
     updatedAt: toIsoString(row.updated_at),
@@ -294,14 +303,20 @@ export async function listRunnableQueuedJobRunIds(params?: {
 export async function completeRun(id: string, output: string, meta?: {
   provider?: string
   model?: string
+  modelSource?: string
   usage?: { inputTokens: number; outputTokens: number; totalTokens: number }
+  cachedInputTokens?: number
+  reasoningOutputTokens?: number
   durationMs?: number
 }) {
   const provider = meta?.provider ?? null
   const model = meta?.model ?? null
+  const modelSource = meta?.modelSource ?? null
   const inputTokens = meta?.usage?.inputTokens ?? null
   const outputTokens = meta?.usage?.outputTokens ?? null
   const totalTokens = meta?.usage?.totalTokens ?? null
+  const cachedInputTokens = meta?.cachedInputTokens ?? null
+  const reasoningOutputTokens = meta?.reasoningOutputTokens ?? null
   const durationMs = meta?.durationMs ?? null
   await db.exec`
     UPDATE runs
@@ -309,12 +324,50 @@ export async function completeRun(id: string, output: string, meta?: {
         output = ${output},
         provider = COALESCE(${provider}, provider),
         model = COALESCE(${model}, model),
+        model_source = COALESCE(${modelSource}, model_source),
         input_tokens = ${inputTokens},
         output_tokens = ${outputTokens},
         total_tokens = ${totalTokens},
+        cached_input_tokens = ${cachedInputTokens},
+        reasoning_output_tokens = ${reasoningOutputTokens},
         duration_ms = ${durationMs},
         updated_at = NOW()
     WHERE id = ${id} AND status = 'running'
+  `
+}
+
+export async function updateRunMeta(id: string, meta: {
+  provider?: string
+  model?: string
+  modelSource?: string
+  usage?: { inputTokens: number; outputTokens: number; totalTokens: number }
+  cachedInputTokens?: number
+  reasoningOutputTokens?: number
+  durationMs?: number
+}) {
+  const provider = meta.provider ?? null
+  const model = meta.model ?? null
+  const modelSource = meta.modelSource ?? null
+  const inputTokens = meta.usage?.inputTokens ?? null
+  const outputTokens = meta.usage?.outputTokens ?? null
+  const totalTokens = meta.usage?.totalTokens ?? null
+  const cachedInputTokens = meta.cachedInputTokens ?? null
+  const reasoningOutputTokens = meta.reasoningOutputTokens ?? null
+  const durationMs = meta.durationMs ?? null
+
+  await db.exec`
+    UPDATE runs
+    SET provider = COALESCE(${provider}, provider),
+        model = COALESCE(${model}, model),
+        model_source = COALESCE(${modelSource}, model_source),
+        input_tokens = COALESCE(${inputTokens}, input_tokens),
+        output_tokens = COALESCE(${outputTokens}, output_tokens),
+        total_tokens = COALESCE(${totalTokens}, total_tokens),
+        cached_input_tokens = COALESCE(${cachedInputTokens}, cached_input_tokens),
+        reasoning_output_tokens = COALESCE(${reasoningOutputTokens}, reasoning_output_tokens),
+        duration_ms = COALESCE(${durationMs}, duration_ms),
+        updated_at = NOW()
+    WHERE id = ${id}
   `
 }
 

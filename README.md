@@ -5,7 +5,7 @@ Autonomous code-generation agent backend built on [Encore](https://encore.dev). 
 ## Quick Start
 
 ```bash
-npm install
+bun install
 encore run          # API on http://localhost:4000
 ```
 
@@ -81,7 +81,7 @@ The `agent/` directory contains the runtime engine (not an Encore service) — o
 ## Workspace Modes
 
 - **host** — Direct filesystem access with path policy enforcement and rollback tracking.
-- **e2b** — Isolated [E2B](https://e2b.dev) sandbox with shell access via `sandbox_cmd` tool.
+- **e2b** — Isolated [E2B](https://e2b.dev) sandbox with limited command access via `sandbox_cmd` tool.
 
 ## Environment Variables
 
@@ -113,11 +113,11 @@ The `agent/` directory contains the runtime engine (not an Encore service) — o
 ## Development
 
 ```bash
-npm test                                        # Unit tests
-npm test -- tests/unit/foo.test.ts              # Single file
-npm test -- tests/unit/foo.test.ts -t "name"    # Single test
-npm run test:encore                             # Integration tests
-npm run typecheck                               # Type check
+bun test                                        # Unit tests
+bun test -- tests/unit/foo.test.ts              # Single file
+bun test -- tests/unit/foo.test.ts -t "name"    # Single test
+bun run test:encore                             # Integration tests
+bun run typecheck                               # Type check
 ```
 
 ## License

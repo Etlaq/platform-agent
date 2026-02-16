@@ -10,9 +10,10 @@ import {
   markJobFailed,
   queueRunForRetry,
   setJobStatus,
+  updateRunMeta,
   updateRunStatus,
 } from '../data/db'
-import { isRunAbortedError, runAgent } from '../agent/runAgent'
+import { isRunAbortedError, runAgent, RunAbortedError } from '../agent/runAgent'
 import { commitRunToGit } from './gitCommit'
 
 interface RunRequestedEvent {
@@ -51,6 +52,37 @@ async function emit(runId: string, type: string, payload: unknown) {
 async function processRun(runId: string) {
   const baseRun = await getRun(runId)
   if (!baseRun) return
+
+  const parseNumber = (value: unknown) => {
+    const n = typeof value === 'number' ? value : Number(value)
+    return Number.isFinite(n) ? n : null
+  }
+
+  const parseSnapshotMeta = (payload: unknown) => {
+    if (!payload || typeof payload !== 'object' || Array.isArray(payload)) return null
+    const status = (payload as { status?: unknown }).status
+    if (status !== 'rollback_snapshot' && status !== 'sandbox_snapshot') return null
+
+    const usageRaw = (payload as { usage?: unknown }).usage
+    const usage = (() => {
+      if (!usageRaw || typeof usageRaw !== 'object' || Array.isArray(usageRaw)) return null
+      const inputTokens = parseNumber((usageRaw as { inputTokens?: unknown }).inputTokens) ?? 0
+      const outputTokens = parseNumber((usageRaw as { outputTokens?: unknown }).outputTokens) ?? 0
+      const totalRaw = parseNumber((usageRaw as { totalTokens?: unknown }).totalTokens)
+      const totalTokens =
+        totalRaw == null || (totalRaw === 0 && (inputTokens > 0 || outputTokens > 0))
+          ? inputTokens + outputTokens
+          : totalRaw
+      return { inputTokens, outputTokens, totalTokens }
+    })()
+
+    return {
+      ...(usage ? { usage } : {}),
+      cachedInputTokens: parseNumber((payload as { cachedInputTokens?: unknown }).cachedInputTokens) ?? undefined,
+      reasoningOutputTokens: parseNumber((payload as { reasoningOutputTokens?: unknown }).reasoningOutputTokens) ?? undefined,
+      durationMs: parseNumber((payload as { durationMs?: unknown }).durationMs) ?? undefined,
+    }
+  }
 
   let attempts = (await getJobByRunId(runId))?.attempts ?? 0
   const maxAttempts = (await getJobByRunId(runId))?.maxAttempts ?? 3
@@ -108,29 +140,52 @@ async function processRun(runId: string) {
           })
       }, POLL_CANCEL_MS)
 
-      const result = await runAgent({
-        prompt: latestRun.prompt,
-        input: latestRun.input ?? undefined,
-        provider: latestRun.provider ?? undefined,
-        model: latestRun.model ?? undefined,
-        runId,
-        workspaceBackend: latestRun.workspaceBackend ?? undefined,
-        signal: abortController.signal,
-        onEvent: (event) => {
-          if (abortController.signal.aborted) return
-          if (event.type === 'token') {
-            queueEmit('token', event.payload)
-            return
-          }
-          if (event.type === 'tool') {
-            queueEmit('tool', event.payload)
-            return
-          }
-          if (event.type === 'status') {
-            queueEmit('status', event.payload)
-          }
-        },
+      // Ensure a cancelled run doesn't keep the PubSub handler stuck waiting forever if the
+      // underlying model/tool call ignores AbortSignal (we still pass the signal through).
+      const abortPromise = new Promise<never>((_resolve, reject) => {
+        if (abortController.signal.aborted) {
+          reject(new RunAbortedError())
+          return
+        }
+        abortController.signal.addEventListener(
+          'abort',
+          () => reject(new RunAbortedError()),
+          { once: true },
+        )
       })
+
+      const result = await Promise.race([
+        runAgent({
+          prompt: latestRun.prompt,
+          input: latestRun.input ?? undefined,
+          provider: latestRun.provider ?? undefined,
+          model: latestRun.model ?? undefined,
+          runId,
+          workspaceBackend: latestRun.workspaceBackend ?? undefined,
+          signal: abortController.signal,
+          onEvent: (event) => {
+            if (abortController.signal.aborted) return
+            if (event.type === 'token') {
+              queueEmit('token', event.payload)
+              return
+            }
+            if (event.type === 'tool') {
+              queueEmit('tool', event.payload)
+              return
+            }
+            if (event.type === 'status') {
+              const meta = parseSnapshotMeta(event.payload)
+              if (meta) {
+                void updateRunMeta(runId, meta).catch((error) => {
+                  console.error('queue: failed to persist run meta', error)
+                })
+              }
+              queueEmit('status', event.payload)
+            }
+          },
+        }),
+        abortPromise,
+      ])
 
       await eventChain
 
@@ -152,12 +207,17 @@ async function processRun(runId: string) {
       await completeRun(runId, result.output, {
         provider: result.provider,
         model: result.model,
+        modelSource: result.modelSource,
         usage: result.usage,
+        cachedInputTokens: result.cachedInputTokens,
+        reasoningOutputTokens: result.reasoningOutputTokens,
         durationMs: result.durationMs,
       })
       await emit(runId, 'done', {
         output: result.output,
         usage: result.usage,
+        cachedInputTokens: result.cachedInputTokens,
+        reasoningOutputTokens: result.reasoningOutputTokens,
         durationMs: result.durationMs,
       })
       await setJobStatus(runId, 'succeeded')

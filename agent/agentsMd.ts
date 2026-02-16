@@ -113,9 +113,45 @@ export async function ensureAgentsMd(params: {
 
 function redactLikelySecrets(input: string) {
   let s = input
+
+  // Well-known token formats.
   s = s.replace(/ghp_[A-Za-z0-9]{20,}/g, 'ghp_<redacted>')
   s = s.replace(/sk-[A-Za-z0-9]{20,}/g, 'sk-<redacted>')
-  s = s.replace(/(api[_-]?key|token|secret|password)\s*[:=]\s*[^\s'"]+/gi, '$1=<redacted>')
+  // Z.AI key format observed: <32-hex>.<alnum>
+  s = s.replace(/\b[a-f0-9]{32}\.[A-Za-z0-9]{8,}\b/gi, '<redacted>')
+  // JWTs (three base64url segments).
+  s = s.replace(/\beyJ[A-Za-z0-9_-]{8,}\.[A-Za-z0-9_-]{8,}\.[A-Za-z0-9_-]{8,}\b/g, 'jwt_<redacted>')
+
+  // Authorization headers/tokens.
+  s = s.replace(/\bBearer\s+[A-Za-z0-9._-]{10,}\b/gi, 'Bearer <redacted>')
+  s = s.replace(/(\bauthorization\b\s*[:=]\s*)(?:Bearer\s+)?[^\s'"]+/gi, '$1<redacted>')
+
+  // Headers/env/kv pairs containing secret-y names.
+  s = s.replace(
+    /(\b[a-z0-9-]*?(?:api-?key|token|secret|password)[a-z0-9-]*\b)\s*:\s*[^\s'"]+/gi,
+    '$1: <redacted>',
+  )
+  s = s.replace(
+    /(\b[A-Za-z0-9_]*(?:API|ACCESS|SECRET|TOKEN|PASS(?:WORD)?|KEY)[A-Za-z0-9_]*\b)\s*[:=]\s*[^\s'"]+/g,
+    '$1=<redacted>',
+  )
+  // JSON-ish string fields.
+  s = s.replace(
+    /("(?:apiKey|api_key|api-key|token|secret|password|accessToken|refreshToken)"\s*:\s*")[^"]+(")/gi,
+    '$1<redacted>$2',
+  )
+  s = s.replace(
+    /(\b(?:apiKey|api_key|api-key|token|secret|password|accessToken|refreshToken)\b\s*[:=]\s*)[^\s'"]+/gi,
+    '$1<redacted>',
+  )
+
+  // Catch-all: redact long opaque tokens that often show up in tool inputs.
+  // Prefer over-redaction here to avoid leaking secrets into AGENTS.md.
+  s = s.replace(
+    /\b(?![a-f0-9]{40}\b)(?![a-f0-9]{8}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{12}\b)[A-Za-z0-9][A-Za-z0-9._-]{23,}\b/g,
+    '<redacted>',
+  )
+
   return s
 }
 

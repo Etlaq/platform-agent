@@ -47,6 +47,7 @@ export const root = api(
       '/sandbox/info',
       '/sandbox/dev/start',
       '/sandbox/dev/stop',
+      '/v1/responses',
       '/metrics',
     ],
   }),

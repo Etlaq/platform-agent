@@ -57,7 +57,8 @@ describe('data/db completeRun', () => {
 
     expect(sql).toContain('provider = COALESCE(')
     expect(sql).toContain('model = COALESCE(')
-    expect(values).toEqual(['final output', 'openai', 'gpt-5', 11, 7, 18, 420, 'run-1'])
+    expect(sql).toContain('model_source = COALESCE(')
+    expect(values).toEqual(['final output', 'openai', 'gpt-5', null, 11, 7, 18, null, null, 420, 'run-1'])
   })
 
   it('stays backward-compatible when provider/model are omitted', async () => {
@@ -75,6 +76,6 @@ describe('data/db completeRun', () => {
     expect(execMock).toHaveBeenCalledTimes(1)
     const [, ...values] = execMock.mock.calls[0] as [TemplateStringsArray, ...unknown[]]
 
-    expect(values).toEqual(['legacy output', null, null, 5, 4, 9, 210, 'run-2'])
+    expect(values).toEqual(['legacy output', null, null, null, 5, 4, 9, null, null, 210, 'run-2'])
   })
 })
