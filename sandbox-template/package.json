@@ -1,9 +1,0 @@
-{
-  "scripts": {
-    "e2b:build:dev": "npx tsx --env-file=../.env build.dev.ts",
-    "e2b:build:prod": "npx tsx --env-file=../.env build.prod.ts"
-  },
-  "dependencies": {
-    "e2b": "^2.12.1"
-  }
-}
