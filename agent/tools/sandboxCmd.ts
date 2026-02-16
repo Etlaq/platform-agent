@@ -9,14 +9,53 @@ const sandboxCmdSchema = z.object({
   timeoutMs: z.number().int().positive().optional(),
 })
 
-const ALLOWED_BINARIES = new Set(['bun', 'bunx', 'node', 'npm', 'pnpm'])
+const ALLOWED_BINARIES = new Set(['bun', 'bunx', 'mkdir', 'rm'])
 const SHELL_META_PATTERN = /[;&|`$><(){}\n\r]/
+
+function getBinary(cmd: string) {
+  const trimmed = cmd.trim()
+  if (!trimmed) return null
+  const [binary] = trimmed.split(/\s+/, 1)
+  return binary || null
+}
+
+function targetsGitDir(cmd: string): boolean {
+  // Block attempts to delete the repository metadata directory.
+  // Keep this conservative: deny `.git` as a path segment or glob prefix, but allow `.gitignore`, `.github`, etc.
+  const raw = cmd.trim()
+  if (!raw) return false
+
+  const lower = raw.toLowerCase()
+  const isWord = (ch: string) => (ch >= 'a' && ch <= 'z') || (ch >= '0' && ch <= '9') || ch === '_'
+  const isSpace = (ch: string) => ch === ' ' || ch === '\t' || ch === '\n' || ch === '\r'
+  const isBoundaryBefore = (ch: string) => isSpace(ch) || ch === '"' || ch === "'" || ch === '/'
+  const isBoundaryAfter = (ch: string) => isSpace(ch) || ch === '"' || ch === "'" || ch === '/' || !isWord(ch)
+
+  let idx = 0
+  while (idx < lower.length) {
+    const at = lower.indexOf('.git', idx)
+    if (at === -1) break
+
+    const before = at === 0 ? '' : lower[at - 1]!
+    const afterPos = at + 4
+    const after = afterPos >= lower.length ? '' : lower[afterPos]!
+
+    const okBefore = at === 0 || isBoundaryBefore(before)
+    const okAfter = afterPos >= lower.length || isBoundaryAfter(after)
+
+    if (okBefore && okAfter) return true
+    idx = at + 4
+  }
+
+  return false
+}
 
 function isAllowedCommand(cmd: string) {
   const trimmed = cmd.trim()
   if (!trimmed) return false
   if (SHELL_META_PATTERN.test(trimmed)) return false
-  const [binary] = trimmed.split(/\s+/, 1)
+  const binary = getBinary(trimmed)
+  if (!binary) return false
   return ALLOWED_BINARIES.has(binary)
 }
 
@@ -35,9 +74,17 @@ export function createSandboxCmdTool(params: {
         return {
           ok: false,
           error:
-            'Command denied by policy. Only bun/bunx/node/npm/pnpm are allowed. ' +
+            'Command denied by policy. Only bun/bunx/mkdir/rm are allowed. ' +
             'Do not use shell operators (cd, &&, |, >, ;). Use the `cwd` option instead. ' +
             'Do not prefix env vars like FOO=bar; use the `envs` option instead.',
+        }
+      }
+
+      const binary = getBinary(parsed.data.cmd)
+      if (binary === 'rm' && targetsGitDir(parsed.data.cmd)) {
+        return {
+          ok: false,
+          error: "Command denied by policy. Do not use rm on the '.git' directory.",
         }
       }
 
@@ -71,7 +118,7 @@ export function createSandboxCmdTool(params: {
     {
       name: 'sandbox_cmd',
       description:
-        'Run a limited set of package/dev commands inside the E2B sandbox (bun/bunx/node/npm/pnpm). Supports `cwd` and `envs`.',
+        'Run a limited set of commands inside the E2B sandbox (bun/bunx/mkdir/rm). Supports `cwd` and `envs`.',
       schema: sandboxCmdSchema as any,
     }
   )

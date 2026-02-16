@@ -408,17 +408,60 @@ export class E2BSandboxBackend implements BackendProtocol {
     files: Array<[string, Uint8Array]>
   ): Promise<FileUploadResponse[] & { filesUpdate?: Record<string, FileData> }> {
     const responses: FileUploadResponse[] = []
+
+    // All uploaded files are materialized into a predictable folder at the project root so
+    // generated apps can reference them without relying on user-provided paths.
+    const attachedAssetsDirVirtual = '/attached_assets'
+    const attachedAssetsDirSandbox = this.toSandboxPath(attachedAssetsDirVirtual)
+    const attachedAssetsDirQuoted = this.shellQuote(attachedAssetsDirSandbox)
+
+    const sanitizeFilename = (input: string) => {
+      const base = path.posix.basename(toPosix(input))
+      const cleaned = base.replace(/[^A-Za-z0-9._-]/g, '_')
+      if (!cleaned || cleaned === '.' || cleaned === '..') return 'file'
+      return cleaned
+    }
+
+    const nextPrefix = async () => {
+      // Use a simple monotonic prefix (1-, 2-, 3-...) to avoid collisions and keep names readable.
+      // We derive the next prefix by scanning the current directory once.
+      let max = 0
+      const listing = await this.runAllowFailure(`if [ -d ${attachedAssetsDirQuoted} ]; then ls -1 ${attachedAssetsDirQuoted}; fi`)
+      for (const line of listing.split(/\r?\n/)) {
+        const name = line.trim()
+        if (!name) continue
+        const match = /^(\d+)-/.exec(name)
+        if (!match) continue
+        const n = Number(match[1])
+        if (Number.isFinite(n)) max = Math.max(max, n)
+      }
+      return max + 1
+    }
+
+    try {
+      await this.runOk(`mkdir -p ${attachedAssetsDirQuoted}`)
+    } catch {
+      // If we can't create the directory, fail all uploads consistently.
+      return files.map(([p]) => ({ path: toVirtualPath(p), error: 'permission_denied' })) as any
+    }
+
+    let prefix = await nextPrefix()
+
     for (const [virtualPath, bytes] of files) {
+      const originalName = sanitizeFilename(virtualPath)
+      const storedVirtualPath = `${attachedAssetsDirVirtual}/${prefix}-${originalName}`
+      prefix += 1
+
       try {
-        const sandboxPath = this.toSandboxPath(virtualPath)
+        const sandboxPath = this.toSandboxPath(storedVirtualPath)
         const file = this.shellQuote(sandboxPath)
         const dir = this.shellQuote(path.posix.dirname(sandboxPath))
         const payload = Buffer.from(bytes).toString('base64')
         const cmd = `mkdir -p ${dir} && printf '%s' '${payload}' | base64 -d > ${file}`
         await this.runOk(cmd)
-        responses.push({ path: toVirtualPath(virtualPath), error: null })
+        responses.push({ path: toVirtualPath(storedVirtualPath), error: null })
       } catch {
-        responses.push({ path: toVirtualPath(virtualPath), error: 'permission_denied' })
+        responses.push({ path: toVirtualPath(storedVirtualPath), error: 'permission_denied' })
       }
     }
     return responses as any
