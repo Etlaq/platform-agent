@@ -1,4 +1,3 @@
-import 'dotenv/config'
 import { Template, defaultBuildLogger } from 'e2b'
 import { template } from './template'
 
