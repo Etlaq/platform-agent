@@ -48,8 +48,8 @@ Worker cron endpoints are private (`worker.kickQueuedRuns`, `worker.requeueStale
 
 Auth resolution order:
 
-1. `AGENT_API_KEY` environment variable
-2. Encore secret `AgentApiKey`
+1. Encore secret `AgentApiKey`
+2. `AGENT_API_KEY` environment variable (fallback)
 
 If request token mismatches expected key: `401 unauthenticated`.
 
@@ -190,6 +190,7 @@ Other stream behavior:
 - Used for direct E2B operations outside the queued run lifecycle.
 - Requires `E2B_API_KEY` and `E2B_TEMPLATE`.
 - Has retry wrappers for transient E2B/network failures.
+- Command execution uses a hard wall-clock timeout wrapper, so stuck SDK calls fail fast instead of hanging indefinitely.
 
 ### Download API
 
@@ -219,13 +220,17 @@ Other stream behavior:
 4. E2B not configured:
 - `/exec` and `/sandbox/*` fail if `E2B_API_KEY` or `E2B_TEMPLATE` missing.
 
-5. Provider key/model issues:
+5. Sandbox lifecycle mismatch:
+- if a sandbox is paused/evicted, follow-up calls can fail with internal errors such as `Paused sandbox <id> not found`.
+- with hard command timeouts enabled, these cases should fail explicitly instead of leaving runs stuck forever.
+
+6. Provider key/model issues:
 - run enters `error` with provider/network/model-specific failure text.
 
-6. Retry queue behavior misunderstood:
+7. Retry queue behavior misunderstood:
 - failed attempts may stay non-terminal for backoff period; inspect `events` and `jobs` state.
 
-7. Documentation drift:
+8. Documentation drift:
 - root endpoint currently lists `/v1/responses`, but no corresponding endpoint exists in this codebase.
 
 ## 8) Minimal Smoke Test (Recommended)
@@ -256,10 +261,16 @@ curl -s -H "X-Agent-Api-Key: $KEY" "$API/runs/$RUN_ID/events" | jq '.[-5:]'
 
 # 5) Optional SSE stream
 curl -N -H "X-Agent-Api-Key: $KEY" "$API/runs/$RUN_ID/stream"
+
+# 6) E2B timeout probe (should return quickly, not hang)
+SID=$(curl -s -X POST "$API/sandbox/create" -H "X-Agent-Api-Key: $KEY" -H "Content-Type: application/json" -d '{}' | jq -r '.sandboxId')
+curl -s -X POST "$API/exec" \
+  -H "X-Agent-Api-Key: $KEY" \
+  -H "Content-Type: application/json" \
+  -d "{\"sandboxId\":\"$SID\",\"cmd\":\"sleep 120\",\"timeoutMs\":5000}" | jq .
 ```
 
 Healthy run expectations:
 
 - terminal status in `runs/:id` is `completed`
 - `events` contains `phase_started`, `plan_ready`, `phase_transition`, `phase_completed`, `done`
-
