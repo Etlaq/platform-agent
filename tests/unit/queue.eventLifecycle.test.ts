@@ -104,7 +104,6 @@ const commitRunToGitMock = vi.fn(async (_params: {
   runId: string
   workspaceBackend?: 'host' | 'e2b' | null
 }) => ({ ok: false, skipped: 'no_changes' as const }))
-const closeSandboxWithRetryMock = vi.fn(async (_sandboxId: string) => undefined)
 
 vi.mock('encore.dev/pubsub', () => {
   class Topic<T> {
@@ -157,10 +156,6 @@ vi.mock('../../agent/runAgent', () => ({
 
 vi.mock('../../worker/gitCommit', () => ({
   commitRunToGit: commitRunToGitMock,
-}))
-
-vi.mock('../../common/e2bSandbox', () => ({
-  closeSandboxWithRetry: closeSandboxWithRetryMock,
 }))
 
 function buildRun(runId: string): RunRecordShape {
@@ -242,7 +237,6 @@ describe('worker queue event lifecycle', () => {
     updateRunStatusMock.mockClear()
     runAgentMock.mockReset()
     commitRunToGitMock.mockClear()
-    closeSandboxWithRetryMock.mockClear()
 
     runAgentMock.mockImplementation(async ({ runId, onEvent }: RunAgentParams) => {
       onEvent?.({

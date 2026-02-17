@@ -80,7 +80,6 @@ const commitRunToGitMock = vi.fn(async (_params: {
   runId: string
   workspaceBackend?: 'host' | 'e2b' | null
 }) => ({ ok: false, skipped: 'no_changes' as const }))
-const closeSandboxWithRetryMock = vi.fn(async (_sandboxId: string) => undefined)
 
 vi.mock('encore.dev/pubsub', () => {
   class Topic<T extends { runId: string }> {
@@ -140,10 +139,6 @@ vi.mock('../../worker/gitCommit', () => ({
   commitRunToGit: commitRunToGitMock,
 }))
 
-vi.mock('../../common/e2bSandbox', () => ({
-  closeSandboxWithRetry: closeSandboxWithRetryMock,
-}))
-
 describe('worker/queue completion persistence', () => {
   beforeEach(() => {
     subscriptionHandlers.length = 0
@@ -165,7 +160,6 @@ describe('worker/queue completion persistence', () => {
     runAgentMock.mockClear()
     isRunAbortedErrorMock.mockClear()
     commitRunToGitMock.mockClear()
-    closeSandboxWithRetryMock.mockClear()
   })
 
   it('passes resolved provider/model into completeRun with usage/duration', async () => {
