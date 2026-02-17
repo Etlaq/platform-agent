@@ -38,9 +38,23 @@ vi.mock('node:child_process', () => ({
   spawn: spawnMock,
 }))
 
-vi.mock('../../agent/runtime/config', () => ({
-  resolveWorkspaceRoot: () => process.cwd(),
-}))
+vi.mock('../../agent/runtime/config', () => {
+  const runtimeDir = 'agent-runtime'
+  return {
+    BUILD_PHASE_PROMPT_APPENDIX: 'build-phase',
+    DEFAULT_AGENT_RUNTIME_DIR: runtimeDir,
+    DEFAULT_MEMORY_DIR: `${runtimeDir}/memories`,
+    DEFAULT_ROLLBACK_DIR: `${runtimeDir}/rollbacks`,
+    DEFAULT_SKILLS_DIR: `${runtimeDir}/skills`,
+    DEFAULT_SUBAGENT_PROMPT: 'subagent',
+    DEFAULT_SYSTEM_PROMPT: 'system',
+    E2B_SYSTEM_PROMPT: 'e2b-system',
+    PLAN_PHASE_PROMPT_APPENDIX: 'plan-phase',
+    ensureDir: () => {},
+    resolveDir: (_envKey: string, fallback: string) => fallback,
+    resolveWorkspaceRoot: () => process.cwd(),
+  }
+})
 
 let moduleSeq = 0
 
