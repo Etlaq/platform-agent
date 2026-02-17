@@ -74,6 +74,7 @@ async function cleanupStaleNextBuild(params: { sandbox: Sandbox; cwd: string }) 
   // Kill stale Next.js build processes before/after build attempts.
   const cleanupCmd =
     "pkill -f '/node_modules/.bin/next build' || true; " +
+    "pkill -f '/.next/build/postcss.js' || true; " +
     "pkill -f 'bun run build' || true; " +
     "rm -f .next/lock || true"
   await params.sandbox.commands.run(cleanupCmd, {
