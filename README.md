@@ -2,6 +2,8 @@
 
 Autonomous code-generation agent backend built on [Encore](https://encore.dev). Accepts a prompt, plans changes, executes them in a sandboxed or host workspace, and streams results back via SSE.
 
+This repository is backend-only (API + worker services). It does not ship a production frontend.
+
 ## Quick Start
 
 ```bash
@@ -15,6 +17,8 @@ Copy `.env.example` to `.env` and fill in at minimum:
 AGENT_API_KEY=<your-key>
 OPENAI_API_KEY=<or any supported provider key>
 ```
+
+For Encore cloud deployments, also define required Encore secrets (especially `AgentApiKey`), or deployment will fail during infrastructure validation.
 
 ## API
 
@@ -130,6 +134,22 @@ bun run typecheck                               # Type check
 bun run api:check:smoke                         # API smoke check (/v1)
 bun run api:check:deep                          # API deep check (/v1)
 ```
+
+## Verification Against Deployed Envs
+
+```bash
+export API_BASE=https://staging-platform-agent-3p2i.encr.app
+export AGENT_API_KEY=<your-key>
+
+bun run api:check:smoke
+bun run api:check:deep
+```
+
+Optional knobs:
+
+- `CHECK_WORKSPACE_BACKEND=host|e2b`
+- `CHECK_PROVIDER=<provider>`
+- `CHECK_MODEL=<model>`
 
 ## License
 

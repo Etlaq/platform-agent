@@ -2,6 +2,8 @@
 
 This document explains how clients should interface with this backend, how a run executes end-to-end, and where failures usually happen.
 
+Scope note: this codebase is backend-only. Any UI used for testing is external and should consume `/v1/*` endpoints.
+
 ## 1) Service Interface at a Glance
 
 ### Public endpoints (no auth header required)
@@ -302,3 +304,14 @@ Environment variables for deployed checks:
 - `API_BASE=https://<env>.encr.app`
 - `AGENT_API_KEY=<key>`
 - optional: `CHECK_WORKSPACE_BACKEND=e2b|host`, `CHECK_PROVIDER`, `CHECK_MODEL`
+
+## 10) Release Checklist
+
+Before shipping endpoint/lifecycle changes:
+
+1. `encore check`
+2. `bun run typecheck`
+3. `bun test`
+4. `bun run api:check:smoke`
+5. `bun run api:check:deep` (prefer on staging with real secrets)
+6. Confirm clients still target `/v1/*` (legacy paths are compatibility-only)
