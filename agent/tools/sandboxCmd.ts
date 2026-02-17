@@ -59,6 +59,29 @@ function isAllowedCommand(cmd: string) {
   return ALLOWED_BINARIES.has(binary)
 }
 
+function isBuildCommand(cmd: string) {
+  return /^bun\s+run\s+build(?:\s|$)/.test(cmd.trim())
+}
+
+function isTimeoutError(err: unknown) {
+  const msg = err instanceof Error ? err.message : String(err)
+  const lower = msg.toLowerCase()
+  return lower.includes('deadline_exceeded') || lower.includes('timed out') || lower.includes('timeout')
+}
+
+async function cleanupStaleNextBuild(params: { sandbox: Sandbox; cwd: string }) {
+  // E2B command timeouts can leave orphaned build processes behind.
+  // Kill stale Next.js build processes before/after build attempts.
+  const cleanupCmd =
+    "pkill -f '/node_modules/.bin/next build' || true; " +
+    "pkill -f 'bun run build' || true; " +
+    "rm -f .next/lock || true"
+  await params.sandbox.commands.run(cleanupCmd, {
+    cwd: params.cwd,
+    timeoutMs: 10_000,
+  } as any).catch(() => undefined)
+}
+
 export function createSandboxCmdTool(params: {
   sandbox: Sandbox
   defaultCwd: string
@@ -88,9 +111,15 @@ export function createSandboxCmdTool(params: {
         }
       }
 
+      const cwd = parsed.data.cwd ?? params.defaultCwd
+      const buildCmd = isBuildCommand(parsed.data.cmd)
+      if (buildCmd) {
+        await cleanupStaleNextBuild({ sandbox: params.sandbox, cwd })
+      }
+
       try {
         const res = await params.sandbox.commands.run(parsed.data.cmd, {
-          cwd: parsed.data.cwd ?? params.defaultCwd,
+          cwd,
           envs: parsed.data.envs,
           timeoutMs: parsed.data.timeoutMs,
         })
@@ -102,6 +131,9 @@ export function createSandboxCmdTool(params: {
           stderr: (res as any).stderr ?? '',
         }
       } catch (err) {
+        if (buildCmd && isTimeoutError(err)) {
+          await cleanupStaleNextBuild({ sandbox: params.sandbox, cwd })
+        }
         const result = (err as any)?.result
         if (result && typeof result.exitCode === 'number') {
           return {
