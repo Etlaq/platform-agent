@@ -1,0 +1,104 @@
+name: CI/CD
+
+on:
+  pull_request:
+    branches:
+      - master
+  push:
+    branches:
+      - master
+  workflow_dispatch:
+
+concurrency:
+  group: ci-cd-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  ci:
+    name: Typecheck and Unit Tests
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Bun
+        uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: "1.3.6"
+
+      - name: Install dependencies
+        run: bun install --frozen-lockfile
+
+      - name: Typecheck
+        run: bun run typecheck
+
+      - name: Unit tests
+        run: bun test
+
+  deploy:
+    name: Trigger Encore Rollout
+    runs-on: ubuntu-latest
+    needs:
+      - ci
+    if: github.event_name == 'push' && github.ref == 'refs/heads/master'
+    timeout-minutes: 10
+    steps:
+      - name: Ensure jq is available
+        run: |
+          if ! command -v jq >/dev/null 2>&1; then
+            sudo apt-get update
+            sudo apt-get install -y jq
+          fi
+
+      - name: Validate required secrets
+        env:
+          ENCORE_CLIENT_ID: ${{ secrets.ENCORE_CLIENT_ID }}
+          ENCORE_CLIENT_SECRET: ${{ secrets.ENCORE_CLIENT_SECRET }}
+          ENCORE_APP_ID: ${{ secrets.ENCORE_APP_ID }}
+          ENCORE_ENV_NAME: ${{ secrets.ENCORE_ENV_NAME }}
+        run: |
+          missing=0
+          for key in ENCORE_CLIENT_ID ENCORE_CLIENT_SECRET ENCORE_APP_ID ENCORE_ENV_NAME; do
+            if [ -z "${!key}" ]; then
+              echo "::error::Missing required GitHub secret: ${key}"
+              missing=1
+            fi
+          done
+
+          if [ "$missing" -ne 0 ]; then
+            exit 1
+          fi
+
+      - name: Request Encore OAuth token
+        id: oauth
+        env:
+          ENCORE_CLIENT_ID: ${{ secrets.ENCORE_CLIENT_ID }}
+          ENCORE_CLIENT_SECRET: ${{ secrets.ENCORE_CLIENT_SECRET }}
+        run: |
+          token_response="$(curl -fsSL -X POST https://api.encore.cloud/api/oauth/token \
+            -H 'Content-Type: application/json' \
+            -d "{\"client_id\":\"${ENCORE_CLIENT_ID}\",\"client_secret\":\"${ENCORE_CLIENT_SECRET}\",\"grant_type\":\"client_credentials\"}")"
+
+          access_token="$(printf '%s' "$token_response" | jq -er '.access_token')"
+          echo "::add-mask::$access_token"
+          echo "access_token=$access_token" >> "$GITHUB_OUTPUT"
+
+      - name: Trigger Encore rollout for commit
+        env:
+          ENCORE_APP_ID: ${{ secrets.ENCORE_APP_ID }}
+          ENCORE_ENV_NAME: ${{ secrets.ENCORE_ENV_NAME }}
+          ENCORE_ACCESS_TOKEN: ${{ steps.oauth.outputs.access_token }}
+          COMMIT_SHA: ${{ github.sha }}
+        run: |
+          payload="$(jq -cn --arg branch "master" --arg revision "$COMMIT_SHA" \
+            '{source:{kind:"git",branch:$branch,revision:$revision}}')"
+
+          rollout_response="$(curl -fsSL -X POST \
+            "https://api.encore.cloud/api/apps/${ENCORE_APP_ID}/envs/${ENCORE_ENV_NAME}/rollouts" \
+            -H "Authorization: Bearer ${ENCORE_ACCESS_TOKEN}" \
+            -H 'Content-Type: application/json' \
+            --data "$payload")"
+
+          rollout_id="$(printf '%s' "$rollout_response" | jq -er '.id')"
+          echo "Triggered Encore rollout ${rollout_id} for commit ${COMMIT_SHA}."

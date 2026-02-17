@@ -156,6 +156,30 @@ bun run api:check:smoke                         # API smoke check (/v1)
 bun run api:check:deep                          # API deep check (/v1)
 ```
 
+## CI/CD (GitHub Actions -> Encore Rollout)
+
+This repo now includes `.github/workflows/ci-cd.yml`:
+
+- On `pull_request` to `master`: runs install + typecheck + unit tests.
+- On `push` to `master`: runs the same checks, then triggers an Encore rollout for the pushed commit SHA via Encore's API.
+
+Required GitHub repository secrets:
+
+| Secret | Description |
+|---|---|
+| `ENCORE_CLIENT_ID` | OAuth client id for Encore API access |
+| `ENCORE_CLIENT_SECRET` | OAuth client secret for Encore API access |
+| `ENCORE_APP_ID` | Encore app id (for this repo: `platform-agent-3p2i`) |
+| `ENCORE_ENV_NAME` | Target environment name (for example `staging`) |
+
+Required Encore environment secret:
+
+| Secret | Description |
+|---|---|
+| `AgentApiKey` | Required by infrastructure validation (missing it blocks deploy) |
+
+Setup guide: `docs/deployment-cicd.md`
+
 ## Verification Against Deployed Envs
 
 ```bash
