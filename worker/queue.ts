@@ -23,12 +23,12 @@ interface RunRequestedEvent {
 
 const POLL_CANCEL_MS = 750
 
-const agentProviderSecret = secret('AGENT_PROVIDER')
-const zaiApiKeySecret = secret('ZAI_API_KEY')
-const zaiModelSecret = secret('ZAI_MODEL')
-const anthropicApiKeySecret = secret('ANTHROPIC_API_KEY')
-const e2bApiKeySecret = secret('E2B_API_KEY')
-const e2bTemplateSecret = secret('E2B_TEMPLATE')
+const agentProviderSecrets = [secret('AGENT_PROVIDER'), secret('AgentProvider')]
+const zaiApiKeySecrets = [secret('ZAI_API_KEY'), secret('ZaiApiKey')]
+const zaiModelSecrets = [secret('ZAI_MODEL'), secret('ZaiModel')]
+const anthropicApiKeySecrets = [secret('ANTHROPIC_API_KEY'), secret('AnthropicApiKey')]
+const e2bApiKeySecrets = [secret('E2B_API_KEY'), secret('E2BApiKey')]
+const e2bTemplateSecrets = [secret('E2B_TEMPLATE'), secret('E2BTemplate')]
 
 function normalizeSecret(value: string | null | undefined) {
   if (typeof value !== 'string') return null
@@ -36,27 +36,30 @@ function normalizeSecret(value: string | null | undefined) {
   return trimmed.length > 0 ? trimmed : null
 }
 
-function setFromSecretIfMissing(envKey: string, readSecret: () => string) {
+function setFromSecretsIfMissing(envKey: string, readSecrets: Array<() => string>) {
   const current = normalizeSecret(process.env[envKey])
   if (current) return
 
-  try {
-    const secretValue = normalizeSecret(readSecret())
-    if (secretValue) {
-      process.env[envKey] = secretValue
+  for (const readSecret of readSecrets) {
+    try {
+      const secretValue = normalizeSecret(readSecret())
+      if (secretValue) {
+        process.env[envKey] = secretValue
+        return
+      }
+    } catch {
+      // Existing runtime checks surface clear errors when required values are absent.
     }
-  } catch {
-    // Existing runtime checks surface clear errors when required values are absent.
   }
 }
 
 function hydrateWorkerEnvFromSecrets() {
-  setFromSecretIfMissing('AGENT_PROVIDER', agentProviderSecret)
-  setFromSecretIfMissing('ZAI_API_KEY', zaiApiKeySecret)
-  setFromSecretIfMissing('ZAI_MODEL', zaiModelSecret)
-  setFromSecretIfMissing('ANTHROPIC_API_KEY', anthropicApiKeySecret)
-  setFromSecretIfMissing('E2B_API_KEY', e2bApiKeySecret)
-  setFromSecretIfMissing('E2B_TEMPLATE', e2bTemplateSecret)
+  setFromSecretsIfMissing('AGENT_PROVIDER', agentProviderSecrets)
+  setFromSecretsIfMissing('ZAI_API_KEY', zaiApiKeySecrets)
+  setFromSecretsIfMissing('ZAI_MODEL', zaiModelSecrets)
+  setFromSecretsIfMissing('ANTHROPIC_API_KEY', anthropicApiKeySecrets)
+  setFromSecretsIfMissing('E2B_API_KEY', e2bApiKeySecrets)
+  setFromSecretsIfMissing('E2B_TEMPLATE', e2bTemplateSecrets)
 }
 
 function parsePositiveInt(name: string, fallback: number, opts?: { min?: number; max?: number }) {

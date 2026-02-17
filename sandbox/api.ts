@@ -88,8 +88,8 @@ interface SandboxStopResponse {
   killSandbox: boolean
 }
 
-const e2bApiKeySecret = secret('E2B_API_KEY')
-const e2bTemplateSecret = secret('E2B_TEMPLATE')
+const e2bApiKeySecrets = [secret('E2B_API_KEY'), secret('E2BApiKey')]
+const e2bTemplateSecrets = [secret('E2B_TEMPLATE'), secret('E2BTemplate')]
 
 function normalizeSecret(value: string | null | undefined) {
   if (typeof value !== 'string') return null
@@ -100,21 +100,31 @@ function normalizeSecret(value: string | null | undefined) {
 function hydrateSandboxEnvFromSecrets() {
   const currentApiKey = normalizeSecret(process.env.E2B_API_KEY)
   if (!currentApiKey) {
-    try {
-      const apiKey = normalizeSecret(e2bApiKeySecret())
-      if (apiKey) process.env.E2B_API_KEY = apiKey
-    } catch {
-      // Validation below returns the user-facing error.
+    for (const readSecret of e2bApiKeySecrets) {
+      try {
+        const apiKey = normalizeSecret(readSecret())
+        if (apiKey) {
+          process.env.E2B_API_KEY = apiKey
+          break
+        }
+      } catch {
+        // Validation below returns the user-facing error.
+      }
     }
   }
 
   const currentTemplate = normalizeSecret(process.env.E2B_TEMPLATE)
   if (!currentTemplate) {
-    try {
-      const template = normalizeSecret(e2bTemplateSecret())
-      if (template) process.env.E2B_TEMPLATE = template
-    } catch {
-      // Validation below returns the user-facing error.
+    for (const readSecret of e2bTemplateSecrets) {
+      try {
+        const template = normalizeSecret(readSecret())
+        if (template) {
+          process.env.E2B_TEMPLATE = template
+          break
+        }
+      } catch {
+        // Validation below returns the user-facing error.
+      }
     }
   }
 }
