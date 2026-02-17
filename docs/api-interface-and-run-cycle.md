@@ -27,7 +27,7 @@ Auth header:
 | `GET` | `/v1/runs/:id` | Run summary |
 | `GET` | `/v1/runs/:id/stream` | SSE stream with replay support |
 | `POST` | `/v1/runs/:id/cancel` | Cancel queued/running run |
-| `GET` | `/v1/runs/:id/download.zip` | Download workspace project zip |
+| `GET` | `/v1/runs/:id/download.zip` | Download run workspace project zip |
 
 All other previous workflow/sandbox/metrics/download endpoints are internal-only.
 
@@ -42,7 +42,8 @@ All other previous workflow/sandbox/metrics/download endpoints are internal-only
   "input": {},
   "stream": false,
   "provider": "openai|anthropic|xai|zai",
-  "model": "optional-model-name"
+  "model": "optional-model-name",
+  "workspaceBackend": "host|e2b"
 }
 ```
 
@@ -56,6 +57,11 @@ Idempotency behavior:
 
 - same `(projectId, Idempotency-Key)` returns the existing run
 - duplicate client retries do not create duplicate runs
+
+Workspace backend behavior:
+
+- `workspaceBackend` accepts `host` or `e2b`.
+- if omitted, backend resolves default from env (`AGENT_WORKSPACE_BACKEND` / `WORKSPACE_BACKEND`), else `e2b` when E2B credentials exist, else `host`.
 
 ## 3) Run Summary Shape
 
@@ -102,11 +108,13 @@ This means client connection state does not control run execution state.
 
 ## 7) Run Download Package
 
-`GET /v1/runs/:id/download.zip` returns the workspace application zip (project files), not metadata json snapshots.
+`GET /v1/runs/:id/download.zip` returns the run workspace application zip (project files), not metadata json snapshots.
 
 Behavior:
 
-- includes workspace source and config files
+- for `e2b` runs: returns that run's sandbox snapshot artifact (`workspace.zip`), or live sandbox zip while run is active
+- for `host` runs: returns host workspace snapshot zip
+- includes source and config files
 - excludes sensitive files and env secrets (for example `.env`)
 - excludes large generated/vendor directories (`node_modules`, `.next`, etc.)
 

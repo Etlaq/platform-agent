@@ -37,7 +37,7 @@ Detailed request/worker lifecycle and troubleshooting are documented in `docs/ap
 | GET | `/v1/runs/:id` | Run summary (JSON envelope) |
 | GET | `/v1/runs/:id/stream` | SSE event stream for a run |
 | POST | `/v1/runs/:id/cancel` | Cancel a running job |
-| GET | `/v1/runs/:id/download.zip` | Download workspace project zip (application files) |
+| GET | `/v1/runs/:id/download.zip` | Download run workspace zip (run-specific app files) |
 
 Older workflow/sandbox/metrics endpoints are now internal-only and no longer part of the public client contract.
 
@@ -48,10 +48,16 @@ curl -X POST http://localhost:4000/v1/runs \
   -H "X-Agent-Api-Key: $AGENT_API_KEY" \
   -H "Idempotency-Key: run-$(date +%s)" \
   -H "Content-Type: application/json" \
-  -d '{"projectId":"default","prompt":"Add a dark mode toggle","stream":false}'
+  -d '{"projectId":"default","prompt":"Add a dark mode toggle","stream":false,"workspaceBackend":"e2b"}'
 ```
 
 The response includes a run `id`. Stream events with `GET /v1/runs/:id/stream` (SSE).
+
+`workspaceBackend` can be `host` or `e2b`. If omitted, backend default resolution is:
+
+1. `AGENT_WORKSPACE_BACKEND` / `WORKSPACE_BACKEND` env override.
+2. `e2b` when both `E2B_API_KEY` and `E2B_TEMPLATE` are available.
+3. fallback `host`.
 
 ## How It Works
 
@@ -70,6 +76,7 @@ Reliability semantics:
 - Reconnect with `GET /v1/runs/:id/stream` and `Last-Event-ID` for replay.
 - `POST /v1/runs` requires `Idempotency-Key` to prevent duplicate run creation on retried client requests.
 - Worker retries, stale-run requeue, and sandbox cleanup are managed internally by backend workers.
+- For `e2b` runs, worker stores a run-specific workspace zip artifact before sandbox cleanup.
 
 ## Services
 
@@ -115,6 +122,7 @@ The `agent/` directory contains the runtime engine (not an Encore service) — o
 | `AGENT_PROVIDER` | Force a specific provider (`openai`, `anthropic`, `xai`, `zai`) |
 | `AGENT_MODEL` | Override default model name |
 | `WORKSPACE_ROOT` | Workspace path (default: `/workspace` or cwd) |
+| `AGENT_WORKSPACE_BACKEND` / `WORKSPACE_BACKEND` | Default workspace backend (`host` or `e2b`) |
 | `ALLOW_HOST_INSTALLS` | Enable `bun install/build/typecheck` in host mode |
 | `E2B_API_KEY` | E2B sandbox API key |
 | `E2B_TEMPLATE` | E2B template ID |

@@ -7,14 +7,19 @@ import { createStoredZipStream } from '../common/zip'
 import { parseJsonBody, parsePathPartAfter, writeApiError, writeApiSuccess } from '../common/http'
 import { parseByteLimit, resolveWorkspaceRoot, toPosixRelPath } from '../common/workspace'
 import { isDeniedEnvFile, isDeniedSensitiveFile } from '../common/fileSensitivity'
+import { resolveSandboxAppDir } from '../common/e2b'
+import { connectSandboxWithRetry } from '../common/e2bSandbox'
+import { buildSandboxZipBuffer } from '../common/sandboxZip'
 import {
   cancelJobByRunId,
   cancelRun,
   createQueuedRun,
   getRun,
   insertEventWithNextSeq,
+  listArtifacts,
   listEventsAfter,
 } from '../data/db'
+import { getBinaryObject } from '../storage/storage'
 import { enqueueRun } from '../worker/queue'
 
 import '../auth/auth'
@@ -26,6 +31,7 @@ interface CreateRunRequest {
   stream?: boolean
   provider?: string
   model?: string
+  workspaceBackend?: string
 }
 
 interface CreateRunResponse {
@@ -128,6 +134,26 @@ function parseRequiredIdempotencyKey(req: IncomingMessage) {
   if (!normalized) return null
   if (normalized.length > 200) return null
   return normalized
+}
+
+function parseWorkspaceBackend(raw: unknown): 'host' | 'e2b' | null {
+  if (typeof raw !== 'string') return null
+  const normalized = raw.trim().toLowerCase()
+  if (normalized === 'host' || normalized === 'e2b') return normalized
+  return null
+}
+
+function resolveDefaultWorkspaceBackend(): 'host' | 'e2b' {
+  const envChoice =
+    parseWorkspaceBackend(process.env.AGENT_WORKSPACE_BACKEND) ??
+    parseWorkspaceBackend(process.env.WORKSPACE_BACKEND)
+  if (envChoice) return envChoice
+
+  if (process.env.E2B_API_KEY && process.env.E2B_TEMPLATE) {
+    return 'e2b'
+  }
+
+  return 'host'
 }
 
 function parseLastEventId(req: IncomingMessage) {
@@ -379,6 +405,13 @@ async function handleCreateRunRequest(req: IncomingMessage, res: ServerResponse)
     return
   }
 
+  const workspaceBackend =
+    parseWorkspaceBackend(payload.workspaceBackend) ?? resolveDefaultWorkspaceBackend()
+  if (payload.workspaceBackend && !parseWorkspaceBackend(payload.workspaceBackend)) {
+    writeRouteError(res, 400, 'workspaceBackend must be either host or e2b', 'invalid_argument')
+    return
+  }
+
   const upsert = await createQueuedRun({
     id: randomUUID(),
     projectId,
@@ -387,6 +420,7 @@ async function handleCreateRunRequest(req: IncomingMessage, res: ServerResponse)
     input: payload.input,
     provider: payload.provider,
     model: payload.model,
+    workspaceBackend,
     maxAttempts: undefined,
   })
 
@@ -452,19 +486,42 @@ async function cancelRunById(id: string): Promise<CancelRunResponse> {
   return { id, status: 'cancelled', cancelled: true }
 }
 
-async function handleRunDownloadZip(req: IncomingMessage, res: ServerResponse) {
-  const id = parseRunId(req)
-  if (!id) {
-    writeRouteError(res, 400, 'run id is required', 'invalid_argument')
-    return
-  }
+function writeZipHeaders(res: ServerResponse, filename: string) {
+  res.statusCode = 200
+  res.setHeader('content-type', 'application/zip')
+  res.setHeader('content-disposition', `attachment; filename="${filename}"`)
+  res.setHeader('cache-control', 'no-store')
+}
 
-  const run = await getRun(id)
-  if (!run) {
-    writeRouteError(res, 404, 'run not found', 'not_found')
-    return
-  }
+async function tryWriteStoredWorkspaceArtifact(runId: string, res: ServerResponse) {
+  const artifacts = await listArtifacts(runId)
+  const workspaceZip = [...artifacts]
+    .reverse()
+    .find((artifact) => artifact.name === 'workspace.zip' && artifact.path)
+  if (!workspaceZip) return false
 
+  const payload = await getBinaryObject(workspaceZip.path)
+  if (!payload) return false
+
+  writeZipHeaders(res, `run-${runId}-workspace.zip`)
+  res.end(payload)
+  return true
+}
+
+async function tryWriteLiveSandboxZip(sandboxId: string, runId: string, res: ServerResponse) {
+  try {
+    const sandbox = await connectSandboxWithRetry(sandboxId)
+    const appDir = resolveSandboxAppDir()
+    const { buffer } = await buildSandboxZipBuffer(sandbox, appDir)
+    writeZipHeaders(res, `run-${runId}-workspace.zip`)
+    res.end(buffer)
+    return true
+  } catch {
+    return false
+  }
+}
+
+async function writeHostWorkspaceZip(runId: string, res: ServerResponse) {
   const root = resolveWorkspaceRoot()
 
   let rootStat: fs.Stats
@@ -493,10 +550,7 @@ async function handleRunDownloadZip(req: IncomingMessage, res: ServerResponse) {
   const stream = createStoredZipStream(files, (file) => readFsFileChunks(file.absPath))
   const reader = stream.getReader()
 
-  res.statusCode = 200
-  res.setHeader('content-type', 'application/zip')
-  res.setHeader('content-disposition', `attachment; filename="run-${id}-workspace.zip"`)
-  res.setHeader('cache-control', 'no-store')
+  writeZipHeaders(res, `run-${runId}-workspace.zip`)
 
   try {
     while (true) {
@@ -512,6 +566,35 @@ async function handleRunDownloadZip(req: IncomingMessage, res: ServerResponse) {
   } finally {
     reader.releaseLock()
   }
+}
+
+async function handleRunDownloadZip(req: IncomingMessage, res: ServerResponse) {
+  const id = parseRunId(req)
+  if (!id) {
+    writeRouteError(res, 400, 'run id is required', 'invalid_argument')
+    return
+  }
+
+  const run = await getRun(id)
+  if (!run) {
+    writeRouteError(res, 404, 'run not found', 'not_found')
+    return
+  }
+
+  if (await tryWriteStoredWorkspaceArtifact(id, res)) return
+  if (run.sandboxId && await tryWriteLiveSandboxZip(run.sandboxId, id, res)) return
+
+  if (run.workspaceBackend === 'e2b') {
+    writeRouteError(
+      res,
+      409,
+      'workspace zip is not available yet for this run. wait for snapshot completion or retry.',
+      'unavailable',
+    )
+    return
+  }
+
+  await writeHostWorkspaceZip(id, res)
 }
 
 export const createRunV1 = api.raw(

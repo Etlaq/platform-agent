@@ -34,6 +34,13 @@ interface AgentResult {
 const subscriptionHandlers: Array<(event: { runId: string }) => Promise<void>> = []
 const publishMock = vi.fn(async (_payload: { runId: string }) => undefined)
 
+const addArtifactMock = vi.fn(async (_params: {
+  runId: string
+  name: string
+  path: string
+  mime?: string
+  size?: number
+}) => undefined)
 const cancelJobByRunIdMock = vi.fn(async (_runId: string) => undefined)
 const completeRunMock = vi.fn(async (
   _id: string,
@@ -61,6 +68,7 @@ const markJobFailedMock = vi.fn(async (_runId: string, _attempts: number, _delay
 const queueRunForRetryMock = vi.fn(async (_id: string) => undefined)
 const setRunExecutionAttemptMock = vi.fn(async (_runId: string, _attempt: number, _maxAttempts: number) => undefined)
 const setRunSandboxIdMock = vi.fn(async (_runId: string, _sandboxId: string | null) => undefined)
+const setRunWorkspaceBackendMock = vi.fn(async (_runId: string, _workspaceBackend: 'host' | 'e2b') => undefined)
 const setJobStatusMock = vi.fn(async (_runId: string, _status: string) => undefined)
 const updateRunStatusMock = vi.fn(async (_id: string, _status: string) => undefined)
 const updateRunMetaMock = vi.fn(async (_runId: string, _meta: unknown) => undefined)
@@ -108,6 +116,7 @@ vi.mock('encore.dev/config', () => ({
 }))
 
 vi.mock('../../data/db', () => ({
+  addArtifact: addArtifactMock,
   cancelJobByRunId: cancelJobByRunIdMock,
   claimRunForExecution: claimRunForExecutionMock,
   completeRun: completeRunMock,
@@ -119,6 +128,7 @@ vi.mock('../../data/db', () => ({
   queueRunForRetry: queueRunForRetryMock,
   setRunExecutionAttempt: setRunExecutionAttemptMock,
   setRunSandboxId: setRunSandboxIdMock,
+  setRunWorkspaceBackend: setRunWorkspaceBackendMock,
   setJobStatus: setJobStatusMock,
   updateRunMeta: updateRunMetaMock,
   updateRunStatus: updateRunStatusMock,
@@ -139,10 +149,19 @@ vi.mock('../../worker/gitCommit', () => ({
   commitRunToGit: commitRunToGitMock,
 }))
 
+vi.mock('../../storage/storage', () => ({
+  putBinaryObject: vi.fn(async (_key: string, _payload: Buffer, _contentType?: string) => undefined),
+}))
+
+vi.mock('../../common/sandboxZip', () => ({
+  buildSandboxZipBuffer: vi.fn(async (_sb: unknown, _rootDir: string) => ({ buffer: Buffer.alloc(0), fileCount: 0 })),
+}))
+
 describe('worker/queue completion persistence', () => {
   beforeEach(() => {
     subscriptionHandlers.length = 0
     publishMock.mockClear()
+    addArtifactMock.mockClear()
     cancelJobByRunIdMock.mockClear()
     completeRunMock.mockClear()
     failRunMock.mockClear()
@@ -154,6 +173,7 @@ describe('worker/queue completion persistence', () => {
     queueRunForRetryMock.mockClear()
     setRunExecutionAttemptMock.mockClear()
     setRunSandboxIdMock.mockClear()
+    setRunWorkspaceBackendMock.mockClear()
     setJobStatusMock.mockClear()
     updateRunStatusMock.mockClear()
     updateRunMetaMock.mockClear()
@@ -206,5 +226,6 @@ describe('worker/queue completion persistence', () => {
       runId: 'run-1',
       workspaceBackend: 'host',
     })
+    expect(setRunWorkspaceBackendMock).toHaveBeenCalledTimes(0)
   })
 })

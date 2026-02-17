@@ -85,4 +85,6 @@ agent/       # runtime orchestration (plan/build phases)
 - 2026-02-17T22:45:00.000Z | rollback_update/git_based | Rollback flow now uses commit list selection plus forward restore commit (`rollback_list_commits` + `rollback_run`), no history rewrite.
 - 2026-02-17T22:25:42.000Z | deploy_lesson/token_format | `~/.config/encore/.auth_token` is JSON; manual rollout API calls must use `.access_token` value, not raw file contents.
 - 2026-02-17T22:25:42.000Z | rollout_verification/staging | Rollout `roll_1t5n0fsb0mgc1ufujj60` succeeded and `/v1/runs/:id/download.zip` on staging now returns workspace app files (contains `package.json`, `runs/api.ts`; no `run.json/events.json/artifacts.json`).
+- 2026-02-17T22:51:48.000Z | contract_fix/run_download_source | `/v1/runs/:id/download.zip` must prioritize run-specific E2B artifact/live sandbox zip; host workspace zip is only fallback for host-mode runs.
+- 2026-02-17T22:51:48.000Z | run_mode_fix/backend_resolution | Runs now persist explicit workspace backend resolution (`host`/`e2b`) to avoid silent host fallback when E2B is expected.
 <!-- AGENTS_NOTES_END -->

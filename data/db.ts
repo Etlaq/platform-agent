@@ -471,6 +471,15 @@ export async function setRunSandboxId(runId: string, sandboxId: string | null) {
   `
 }
 
+export async function setRunWorkspaceBackend(runId: string, workspaceBackend: 'host' | 'e2b') {
+  await db.exec`
+    UPDATE runs
+    SET workspace_backend = ${workspaceBackend},
+        updated_at = NOW()
+    WHERE id = ${runId}
+  `
+}
+
 export async function updateRunStatus(id: string, status: RunStatus) {
   await db.exec`
     UPDATE runs

@@ -1,6 +1,7 @@
 import { Topic, Subscription } from 'encore.dev/pubsub'
 import { secret } from 'encore.dev/config'
 import {
+  addArtifact,
   cancelJobByRunId,
   completeRun,
   failRun,
@@ -12,13 +13,15 @@ import {
   queueRunForRetry,
   setRunExecutionAttempt,
   setRunSandboxId,
+  setRunWorkspaceBackend,
   setJobStatus,
   updateRunMeta,
   updateRunStatus,
 } from '../data/db'
 import { isRunAbortedError, runAgent, RunAbortedError } from '../agent/runAgent'
 import { commitRunToGit } from './gitCommit'
-import { closeSandboxWithRetry } from '../common/e2bSandbox'
+import { connectSandboxWithRetry, closeSandboxWithRetry } from '../common/e2bSandbox'
+import { buildSandboxZipBuffer } from '../common/sandboxZip'
 
 interface RunRequestedEvent {
   runId: string
@@ -113,12 +116,60 @@ function parseSandboxIdFromStatusPayload(payload: unknown) {
   return trimmed.length > 0 ? trimmed : null
 }
 
+function parseWorkspaceBackend(raw: unknown): 'host' | 'e2b' | null {
+  if (typeof raw !== 'string') return null
+  const normalized = raw.trim().toLowerCase()
+  if (normalized === 'host' || normalized === 'e2b') return normalized
+  return null
+}
+
+function resolveWorkspaceBackend(preferred: 'host' | 'e2b' | null | undefined): 'host' | 'e2b' {
+  const explicit = parseWorkspaceBackend(preferred)
+  if (explicit) return explicit
+
+  const envChoice =
+    parseWorkspaceBackend(process.env.AGENT_WORKSPACE_BACKEND) ??
+    parseWorkspaceBackend(process.env.WORKSPACE_BACKEND)
+  if (envChoice) return envChoice
+
+  if (normalizeSecret(process.env.E2B_API_KEY) && normalizeSecret(process.env.E2B_TEMPLATE)) {
+    return 'e2b'
+  }
+
+  return 'host'
+}
+
 async function closeSandboxIfPresent(sandboxId: string | null | undefined) {
   if (!sandboxId) return
   try {
     await closeSandboxWithRetry(sandboxId)
   } catch (error) {
     console.error('queue: failed to close sandbox', error)
+  }
+}
+
+async function persistSandboxWorkspaceArtifact(runId: string, sandboxId: string | null | undefined) {
+  if (!sandboxId) return null
+
+  try {
+    const { putBinaryObject } = await import('../storage/storage')
+    const sb = await connectSandboxWithRetry(sandboxId)
+    const appDir = process.env.SANDBOX_APP_DIR || '/home/user'
+    const { buffer, fileCount } = await buildSandboxZipBuffer(sb, appDir)
+    const key = `runs/${runId}/workspace.zip`
+    await putBinaryObject(key, buffer, 'application/zip')
+    await addArtifact({
+      runId,
+      name: 'workspace.zip',
+      path: key,
+      mime: 'application/zip',
+      size: buffer.length,
+    })
+
+    return { key, size: buffer.length, fileCount }
+  } catch (error) {
+    console.error('queue: failed to persist sandbox workspace artifact', error)
+    return null
   }
 }
 
@@ -178,6 +229,13 @@ async function processRun(runId: string) {
 
     const claimed = await claimRunForExecution(runId)
     if (!claimed) return
+
+    const workspaceBackend = resolveWorkspaceBackend(latestRun.workspaceBackend)
+    if (latestRun.workspaceBackend !== workspaceBackend) {
+      await setRunWorkspaceBackend(runId, workspaceBackend).catch((error) => {
+        console.error('queue: failed to persist workspace backend', error)
+      })
+    }
 
     const currentAttempt = attempts + 1
     await setRunExecutionAttempt(runId, currentAttempt, maxAttempts)
@@ -247,7 +305,7 @@ async function processRun(runId: string) {
           provider: latestRun.provider ?? undefined,
           model: latestRun.model ?? undefined,
           runId,
-          workspaceBackend: latestRun.workspaceBackend ?? undefined,
+          workspaceBackend,
           signal: abortController.signal,
           onEvent: (event) => {
             if (abortController.signal.aborted) return
@@ -330,7 +388,7 @@ async function processRun(runId: string) {
       if (runAfterModel?.status !== 'cancelled') {
         const gitCommit = await commitRunToGit({
           runId,
-          workspaceBackend: runAfterModel?.workspaceBackend ?? latestRun.workspaceBackend ?? null,
+          workspaceBackend,
         })
 
         if (gitCommit.ok) {
@@ -350,6 +408,22 @@ async function processRun(runId: string) {
             status: 'git_commit_skipped',
             runId,
             reason: gitCommit.skipped,
+          })
+        }
+      }
+
+      if (workspaceBackend === 'e2b') {
+        const snapshot = await persistSandboxWorkspaceArtifact(runId, attemptSandboxId)
+        if (snapshot) {
+          await emit(runId, 'status', {
+            status: 'workspace_snapshot_stored',
+            artifactPath: snapshot.key,
+            sizeBytes: snapshot.size,
+            fileCount: snapshot.fileCount,
+          })
+        } else {
+          await emit(runId, 'status', {
+            status: 'workspace_snapshot_store_failed',
           })
         }
       }
@@ -379,6 +453,22 @@ async function processRun(runId: string) {
       const finalAttempt = attempts >= maxAttempts
 
       if (finalAttempt) {
+        if (workspaceBackend === 'e2b') {
+          const snapshot = await persistSandboxWorkspaceArtifact(runId, attemptSandboxId)
+          if (snapshot) {
+            await emit(runId, 'status', {
+              status: 'workspace_snapshot_stored',
+              artifactPath: snapshot.key,
+              sizeBytes: snapshot.size,
+              fileCount: snapshot.fileCount,
+            })
+          } else {
+            await emit(runId, 'status', {
+              status: 'workspace_snapshot_store_failed',
+            })
+          }
+        }
+
         await failRun(runId, message)
         await emit(runId, 'error', {
           error: message,

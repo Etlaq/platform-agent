@@ -18,10 +18,23 @@ export async function putJsonObject(key: string, payload: unknown) {
   await artifactsBucket.upload(key, Buffer.from(body), { contentType: 'application/json' })
 }
 
+export async function putBinaryObject(key: string, payload: Buffer, contentType = 'application/octet-stream') {
+  await artifactsBucket.upload(key, payload, { contentType })
+}
+
 export async function getJsonObject<T>(key: string): Promise<T | null> {
   try {
     const payload = await artifactsBucket.download(key)
     return JSON.parse(decoder.decode(payload)) as T
+  } catch (error) {
+    if (isNotFoundError(error)) return null
+    throw error
+  }
+}
+
+export async function getBinaryObject(key: string): Promise<Buffer | null> {
+  try {
+    return await artifactsBucket.download(key)
   } catch (error) {
     if (isNotFoundError(error)) return null
     throw error
