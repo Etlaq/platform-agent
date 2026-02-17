@@ -8,6 +8,7 @@ interface RunView {
   provider: string | null
   model: string | null
   workspaceBackend: 'host' | 'e2b' | null
+  sandboxId: string | null
 }
 
 interface JobView {
@@ -58,6 +59,8 @@ const insertEventWithNextSeqMock = vi.fn(async (_params: {
 }) => undefined)
 const markJobFailedMock = vi.fn(async (_runId: string, _attempts: number, _delaySeconds: number) => undefined)
 const queueRunForRetryMock = vi.fn(async (_id: string) => undefined)
+const setRunExecutionAttemptMock = vi.fn(async (_runId: string, _attempt: number, _maxAttempts: number) => undefined)
+const setRunSandboxIdMock = vi.fn(async (_runId: string, _sandboxId: string | null) => undefined)
 const setJobStatusMock = vi.fn(async (_runId: string, _status: string) => undefined)
 const updateRunStatusMock = vi.fn(async (_id: string, _status: string) => undefined)
 const updateRunMetaMock = vi.fn(async (_runId: string, _meta: unknown) => undefined)
@@ -78,6 +81,7 @@ const commitRunToGitMock = vi.fn(async (_params: {
   runId: string
   workspaceBackend?: 'host' | 'e2b' | null
 }) => ({ ok: false, skipped: 'no_changes' as const }))
+const closeSandboxWithRetryMock = vi.fn(async (_sandboxId: string) => undefined)
 
 vi.mock('encore.dev/pubsub', () => {
   class Topic<T extends { runId: string }> {
@@ -115,6 +119,8 @@ vi.mock('../../data/db', () => ({
   insertEventWithNextSeq: insertEventWithNextSeqMock,
   markJobFailed: markJobFailedMock,
   queueRunForRetry: queueRunForRetryMock,
+  setRunExecutionAttempt: setRunExecutionAttemptMock,
+  setRunSandboxId: setRunSandboxIdMock,
   setJobStatus: setJobStatusMock,
   updateRunMeta: updateRunMetaMock,
   updateRunStatus: updateRunStatusMock,
@@ -139,6 +145,10 @@ vi.mock('../../worker/gitCommit', () => ({
   commitRunToGit: commitRunToGitMock,
 }))
 
+vi.mock('../../common/e2bSandbox', () => ({
+  closeSandboxWithRetry: closeSandboxWithRetryMock,
+}))
+
 describe('worker/queue completion persistence', () => {
   beforeEach(() => {
     subscriptionHandlers.length = 0
@@ -152,6 +162,8 @@ describe('worker/queue completion persistence', () => {
     insertEventWithNextSeqMock.mockClear()
     markJobFailedMock.mockClear()
     queueRunForRetryMock.mockClear()
+    setRunExecutionAttemptMock.mockClear()
+    setRunSandboxIdMock.mockClear()
     setJobStatusMock.mockClear()
     updateRunStatusMock.mockClear()
     updateRunMetaMock.mockClear()
@@ -159,6 +171,7 @@ describe('worker/queue completion persistence', () => {
     isRunAbortedErrorMock.mockClear()
     syncRollbackManifestMock.mockClear()
     commitRunToGitMock.mockClear()
+    closeSandboxWithRetryMock.mockClear()
   })
 
   it('passes resolved provider/model into completeRun with usage/duration', async () => {
@@ -170,6 +183,7 @@ describe('worker/queue completion persistence', () => {
       provider: null,
       model: null,
       workspaceBackend: 'host',
+      sandboxId: null,
     }
 
     getRunMock.mockResolvedValue(run)

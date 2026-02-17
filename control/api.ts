@@ -39,32 +39,12 @@ interface CapabilitiesResponse {
 const PUBLIC_V1_ENDPOINTS = ['/v1', '/v1/health', '/v1/capabilities']
 const AUTH_V1_ENDPOINTS = [
   '/v1/runs',
-  '/v1/workflows/status',
-  '/v1/workflows/kick',
-  '/v1/workflows/requeue-stale',
-  '/v1/exec',
-  '/v1/download.zip',
-  '/v1/sandbox/:id/download.zip',
-  '/v1/sandbox/create',
-  '/v1/sandbox/info',
-  '/v1/sandbox/dev/start',
-  '/v1/sandbox/dev/stop',
-  '/v1/metrics',
-  '/v1/metrics/prometheus',
+  '/v1/runs/:id',
+  '/v1/runs/:id/stream',
+  '/v1/runs/:id/cancel',
+  '/v1/runs/:id/download.zip',
 ]
-const LEGACY_ENDPOINTS = [
-  '/health',
-  '/capabilities',
-  '/runs',
-  '/exec',
-  '/download.zip',
-  '/sandbox/:id/download.zip',
-  '/sandbox/create',
-  '/sandbox/info',
-  '/sandbox/dev/start',
-  '/sandbox/dev/stop',
-  '/metrics',
-]
+const LEGACY_ENDPOINTS: string[] = []
 
 function buildRootResponse(): RootResponse {
   return {

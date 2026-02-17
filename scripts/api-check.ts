@@ -4,6 +4,7 @@ interface CheckOptions {
   mode: 'smoke' | 'deep'
   apiBase: string
   apiKey: string
+  projectId: string
   timeoutMs: number
   pollMs: number
 }
@@ -36,17 +37,22 @@ function readOptions(): CheckOptions {
 
   const apiBase = (parseArgValue('--api') ?? process.env.API_BASE ?? 'http://localhost:4000').replace(/\/$/, '')
   const apiKey = parseArgValue('--key') ?? process.env.AGENT_API_KEY ?? process.env.API_KEY ?? ''
+  const projectId = (parseArgValue('--projectId') ?? process.env.CHECK_PROJECT_ID ?? 'default').trim()
   const timeoutMs = Number(parseArgValue('--timeoutMs') ?? process.env.RUN_TIMEOUT_MS ?? 180_000)
   const pollMs = Number(parseArgValue('--pollMs') ?? process.env.RUN_POLL_MS ?? 2_000)
 
   if (!apiKey) {
     throw new Error('Missing API key. Set AGENT_API_KEY (or pass --key=...).')
   }
+  if (!projectId) {
+    throw new Error('Missing projectId. Set CHECK_PROJECT_ID (or pass --projectId=...).')
+  }
 
   return {
     mode,
     apiBase,
     apiKey,
+    projectId,
     timeoutMs: Number.isFinite(timeoutMs) && timeoutMs > 0 ? timeoutMs : 180_000,
     pollMs: Number.isFinite(pollMs) && pollMs > 0 ? pollMs : 2_000,
   }
@@ -66,10 +72,14 @@ async function request<T>(
   path: string,
   method: HttpMethod,
   body?: unknown,
+  extraHeaders?: Record<string, string>,
 ): Promise<T> {
   const headers = new Headers()
   headers.set('X-Agent-Api-Key', opts.apiKey)
   if (body != null) headers.set('Content-Type', 'application/json')
+  for (const [key, value] of Object.entries(extraHeaders ?? {})) {
+    headers.set(key, value)
+  }
 
   const res = await fetch(`${opts.apiBase}${path}`, {
     method,
@@ -114,16 +124,20 @@ async function runChecks(opts: CheckOptions) {
 
   const prompt = process.env.CHECK_PROMPT
     ?? 'Create a tiny text update and summarize changed files.'
+  const idempotencyKey = `api-check-${Date.now()}-${Math.random().toString(36).slice(2, 10)}`
   const createRun = await request<{ id: string; status: string }>(
     opts,
     '/v1/runs',
     'POST',
     {
+      projectId: opts.projectId,
       prompt,
       stream: false,
-      workspaceBackend: process.env.CHECK_WORKSPACE_BACKEND ?? 'host',
       provider: process.env.CHECK_PROVIDER,
       model: process.env.CHECK_MODEL,
+    },
+    {
+      'Idempotency-Key': idempotencyKey,
     },
   )
 
@@ -149,47 +163,69 @@ async function runChecks(opts: CheckOptions) {
   }
 
   if (opts.mode === 'deep') {
-    const events = await request<Array<{ type?: string; event?: string; payload?: unknown }>>(
-      opts,
-      `/v1/runs/${runId}/events`,
-      'GET',
-    )
-    const artifacts = await request<Array<{ name: string; path: string }>>(
-      opts,
-      `/v1/runs/${runId}/artifacts`,
-      'GET',
-    )
+    const streamRes = await fetch(`${opts.apiBase}/v1/runs/${runId}/stream`, {
+      method: 'GET',
+      headers: {
+        'X-Agent-Api-Key': opts.apiKey,
+      },
+    })
 
-    const eventNames = events.map((evt) => evt.type ?? evt.event ?? '').filter(Boolean)
-    const hasPlan = eventNames.includes('status')
-    const hasDone = eventNames.includes('done')
-    if (!hasPlan || !hasDone) {
-      throw new Error(`Deep check failed for run ${runId}: expected status+done events, got [${eventNames.slice(-20).join(', ')}]`)
+    if (!streamRes.ok || !streamRes.body) {
+      throw new Error(`Deep check failed: stream endpoint unavailable for run ${runId}.`)
     }
 
-    const workflowStatus = await request<{
-      queue: {
-        runnableQueued: number
-        staleRunning: number
-        kickLimit: number
-        kickMinQueuedAgeSeconds: number
-        requeueRunningAfterSeconds: number
+    const reader = streamRes.body.getReader()
+    let streamText = ''
+    let lastEventId = 0
+    for (let i = 0; i < 8; i++) {
+      const { value, done } = await reader.read()
+      if (done) break
+      if (!value) continue
+      streamText += new TextDecoder().decode(value)
+      const idMatches = Array.from(streamText.matchAll(/^id:\s*(\d+)/gm))
+      const maybeLastId = idMatches.length ? Number(idMatches[idMatches.length - 1]?.[1]) : NaN
+      if (Number.isFinite(maybeLastId)) {
+        lastEventId = Math.max(lastEventId, maybeLastId)
       }
-      counts: {
-        runs: Array<{ status: string; count: number }>
-        jobs: Array<{ status: string; count: number }>
+      if (streamText.includes('event: done') || streamText.includes('event: error')) {
+        break
       }
-    }>(opts, '/v1/workflows/status', 'GET')
+    }
+    reader.releaseLock()
 
-    if (
-      typeof workflowStatus.queue?.runnableQueued !== 'number'
-      || typeof workflowStatus.queue?.staleRunning !== 'number'
-    ) {
-      throw new Error('Deep check failed: workflow status payload is missing queue counters.')
+    if (!streamText.includes('event:')) {
+      throw new Error(`Deep check failed: stream produced no events for run ${runId}.`)
+    }
+
+    const replayRes = await fetch(`${opts.apiBase}/v1/runs/${runId}/stream`, {
+      method: 'GET',
+      headers: {
+        'X-Agent-Api-Key': opts.apiKey,
+        'Last-Event-ID': String(lastEventId),
+      },
+    })
+    if (!replayRes.ok) {
+      throw new Error(`Deep check failed: replay stream failed for run ${runId}.`)
+    }
+    replayRes.body?.cancel().catch(() => undefined)
+
+    const downloadRes = await fetch(`${opts.apiBase}/v1/runs/${runId}/download.zip`, {
+      method: 'GET',
+      headers: {
+        'X-Agent-Api-Key': opts.apiKey,
+      },
+    })
+    if (!downloadRes.ok) {
+      throw new Error(`Deep check failed: run zip download failed for run ${runId}.`)
+    }
+
+    const summaryWithCost = await request<RunSummary>(opts, `/v1/runs/${runId}`, 'GET')
+    if (summaryWithCost.status !== 'completed') {
+      throw new Error(`Deep check failed: run ${runId} is not completed after stream validation.`)
     }
 
     console.log(
-      `[api-check] deep events=${events.length} artifacts=${artifacts.length} queued=${workflowStatus.queue.runnableQueued} stale=${workflowStatus.queue.staleRunning}`,
+      `[api-check] deep replay_from=${lastEventId} zip_status=${downloadRes.status} stream_bytes=${streamText.length}`,
     )
   }
 

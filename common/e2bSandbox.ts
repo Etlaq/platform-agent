@@ -127,6 +127,13 @@ export async function connectSandboxWithRetry(sandboxId: string, opts?: SandboxC
   return await withE2BRetries('Sandbox.connect', async () => Sandbox.connect(sandboxId, merged))
 }
 
+export async function closeSandboxWithRetry(sandboxId: string, opts?: SandboxConnectOpts): Promise<void> {
+  const sandbox = await connectSandboxWithRetry(sandboxId, opts)
+  await withE2BRetries('Sandbox.kill', async () => {
+    await sandbox.kill()
+  })
+}
+
 export async function runSandboxCommandWithTimeout(
   sandbox: Sandbox,
   cmd: string,

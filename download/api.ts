@@ -314,21 +314,21 @@ async function handleDownloadSandboxZip(req: IncomingMessage, res: ServerRespons
 }
 
 export const downloadZip = api.raw(
-  { method: 'GET', path: '/download.zip', expose: true, auth: true },
+  { method: 'GET', path: '/download.zip', expose: false, auth: true },
   async (req, res) => handleDownloadZip(req, res),
 )
 
 export const downloadZipV1 = api.raw(
-  { method: 'GET', path: '/v1/download.zip', expose: true, auth: true },
+  { method: 'GET', path: '/v1/download.zip', expose: false, auth: true },
   async (req, res) => handleDownloadZip(req, res),
 )
 
 export const downloadSandboxZip = api.raw(
-  { method: 'GET', path: '/sandbox/:id/download.zip', expose: true, auth: true },
+  { method: 'GET', path: '/sandbox/:id/download.zip', expose: false, auth: true },
   async (req, res) => handleDownloadSandboxZip(req, res),
 )
 
 export const downloadSandboxZipV1 = api.raw(
-  { method: 'GET', path: '/v1/sandbox/:id/download.zip', expose: true, auth: true },
+  { method: 'GET', path: '/v1/sandbox/:id/download.zip', expose: false, auth: true },
   async (req, res) => handleDownloadSandboxZip(req, res),
 )

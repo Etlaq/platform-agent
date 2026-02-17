@@ -33,36 +33,22 @@ Detailed request/worker lifecycle and troubleshooting are documented in `docs/ap
 | GET | `/v1` | Versioned root info |
 | GET | `/v1/health` | Health check |
 | GET | `/v1/capabilities` | Supported actions and constraints |
-| POST | `/v1/runs` | Create a new agent run |
+| POST | `/v1/runs` | Create (or idempotently resolve) an async run |
 | GET | `/v1/runs/:id` | Run summary (JSON envelope) |
 | GET | `/v1/runs/:id/stream` | SSE event stream for a run |
 | POST | `/v1/runs/:id/cancel` | Cancel a running job |
-| GET | `/v1/runs/:id/events` | List run events |
-| GET | `/v1/runs/:id/artifacts` | List run artifacts |
-| GET | `/v1/runs/:id/rollback` | Get rollback manifest |
-| POST | `/v1/runs/:id/rollback` | Restore workspace to pre-run state |
-| GET | `/v1/workflows/status` | Queue/worker workflow health and counts |
-| POST | `/v1/workflows/kick` | Enqueue runnable queued jobs immediately |
-| POST | `/v1/workflows/requeue-stale` | Recover stale running jobs and re-enqueue |
-| POST | `/v1/exec` | Execute command in E2B sandbox |
-| POST | `/v1/sandbox/create` | Create E2B sandbox |
-| POST | `/v1/sandbox/info` | Sandbox info |
-| POST | `/v1/sandbox/dev/start` | Start sandbox dev server |
-| POST | `/v1/sandbox/dev/stop` | Stop sandbox dev server |
-| GET | `/v1/download.zip` | Download workspace as ZIP (includes `.git`) |
-| GET | `/v1/sandbox/:id/download.zip` | Download sandbox workspace as ZIP |
-| GET | `/v1/metrics` | JSON metrics snapshot |
-| GET | `/v1/metrics/prometheus` | Prometheus-style metrics text |
+| GET | `/v1/runs/:id/download.zip` | Download run-scoped package (summary/events/artifacts) |
 
-Legacy non-versioned routes remain available for backward compatibility.
+Older workflow/sandbox/metrics endpoints are now internal-only and no longer part of the public client contract.
 
 ### Creating a Run
 
 ```bash
 curl -X POST http://localhost:4000/v1/runs \
   -H "X-Agent-Api-Key: $AGENT_API_KEY" \
+  -H "Idempotency-Key: run-$(date +%s)" \
   -H "Content-Type: application/json" \
-  -d '{"prompt": "Add a dark mode toggle", "stream": true}'
+  -d '{"projectId":"default","prompt":"Add a dark mode toggle","stream":false}'
 ```
 
 The response includes a run `id`. Stream events with `GET /v1/runs/:id/stream` (SSE).
@@ -78,23 +64,12 @@ In E2B mode, an optional **auto-lint** pass runs after build to fix lint errors 
 
 After successful host runs, workspace changes are staged and committed to Git automatically (unless `AUTO_GIT_COMMIT=false`).
 
-## Workflow Control
+Reliability semantics:
 
-The backend now exposes workflow control APIs so run processing can be operated directly from this service:
-
-- `GET /v1/workflows/status`
-- `POST /v1/workflows/kick`
-- `POST /v1/workflows/requeue-stale`
-
-These use the same queue knobs as the worker cron (`WORKER_KICK_QUEUED_LIMIT`, `WORKER_KICK_QUEUED_MIN_AGE_S`, `WORKER_REQUEUE_RUNNING_AFTER_S`).
-
-```bash
-curl -s -H "X-Agent-Api-Key: $AGENT_API_KEY" http://localhost:4000/v1/workflows/status | jq '.data.queue'
-curl -s -X POST -H "X-Agent-Api-Key: $AGENT_API_KEY" -H "Content-Type: application/json" \
-  -d '{"limit":25,"minQueuedAgeSeconds":15}' http://localhost:4000/v1/workflows/kick | jq '.data'
-curl -s -X POST -H "X-Agent-Api-Key: $AGENT_API_KEY" -H "Content-Type: application/json" \
-  -d '{"staleSeconds":120}' http://localhost:4000/v1/workflows/requeue-stale | jq '.data'
-```
+- Run execution is async and continues even if client/network disconnects.
+- Reconnect with `GET /v1/runs/:id/stream` and `Last-Event-ID` for replay.
+- `POST /v1/runs` requires `Idempotency-Key` to prevent duplicate run creation on retried client requests.
+- Worker retries, stale-run requeue, and sandbox cleanup are managed internally by backend workers.
 
 ## Services
 
@@ -102,13 +77,13 @@ curl -s -X POST -H "X-Agent-Api-Key: $AGENT_API_KEY" -H "Content-Type: applicati
 |---------|------|---------|
 | `auth` | `auth/` | API-key authentication gateway |
 | `control` | `control/` | Health, capabilities, root endpoints |
-| `runs` | `runs/` | Run lifecycle and SSE streaming |
+| `runs` | `runs/` | Public run lifecycle API (simple client contract) |
 | `worker` | `worker/` | Pub/Sub job processor and stale-run cron |
 | `data` | `data/` | PostgreSQL persistence layer |
 | `storage` | `storage/` | Object storage for rollback manifests |
-| `sandbox` | `sandbox/` | E2B sandbox management |
-| `download` | `download/` | ZIP download endpoint |
-| `metrics` | `metrics/` | Monitoring endpoint |
+| `sandbox` | `sandbox/` | Internal E2B sandbox management |
+| `download` | `download/` | Internal workspace/sandbox zip tooling |
+| `metrics` | `metrics/` | Internal monitoring endpoints |
 
 The `agent/` directory contains the runtime engine (not an Encore service) — orchestrator, backends, tools, and rollback manager.
 
@@ -195,7 +170,7 @@ bun run api:check:deep
 
 Optional knobs:
 
-- `CHECK_WORKSPACE_BACKEND=host|e2b`
+- `CHECK_PROJECT_ID=<project-id>`
 - `CHECK_PROVIDER=<provider>`
 - `CHECK_MODEL=<model>`
 

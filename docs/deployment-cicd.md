@@ -68,8 +68,10 @@ Use `/v1/*` endpoints for validation:
 ```bash
 export API_BASE=https://staging-platform-agent-3p2i.encr.app
 export AGENT_API_KEY=<key>
+export CHECK_PROJECT_ID=default
 
 curl -s "$API_BASE/v1/health" | jq '.data.status,.meta.apiVersion'
-curl -s -H "X-Agent-Api-Key: $AGENT_API_KEY" "$API_BASE/v1/workflows/status" | jq '.ok,.data.queue'
+curl -s -H "X-Agent-Api-Key: $AGENT_API_KEY" "$API_BASE/v1/capabilities" | jq '.ok,.data.name'
 bun run api:check:smoke
+bun run api:check:deep
 ```

@@ -11,17 +11,29 @@ interface PersistedEvent {
 interface RunRecordShape {
   id: string
   status: 'queued' | 'running' | 'completed' | 'error' | 'cancelled'
+  projectId: string
+  idempotencyKey: string | null
   prompt: string
   input: unknown
   provider: string | null
   model: string | null
   workspaceBackend: 'host' | 'e2b' | null
+  sandboxId: string | null
   output: string | null
   error: string | null
   inputTokens: number | null
   outputTokens: number | null
   totalTokens: number | null
+  cachedInputTokens: number | null
+  reasoningOutputTokens: number | null
   durationMs: number | null
+  attempt: number
+  maxAttempts: number
+  estimatedCostUsd: number | null
+  costCurrency: string | null
+  pricingVersion: string | null
+  startedAt: string | null
+  completedAt: string | null
   createdAt: string
   updatedAt: string
 }
@@ -75,6 +87,8 @@ const insertEventWithNextSeqMock = vi.fn(async ({ type, payload }: InsertEventPa
 })
 const markJobFailedMock = vi.fn(async (_runId: string, _attempts: number, _delaySeconds: number) => undefined)
 const queueRunForRetryMock = vi.fn(async (_runId: string) => undefined)
+const setRunExecutionAttemptMock = vi.fn(async (_runId: string, _attempt: number, _maxAttempts: number) => undefined)
+const setRunSandboxIdMock = vi.fn(async (_runId: string, _sandboxId: string | null) => undefined)
 const setJobStatusMock = vi.fn(async (_runId: string, _status: string) => undefined)
 const updateRunStatusMock = vi.fn(async (_runId: string, _status: string) => undefined)
 const updateRunMetaMock = vi.fn(async (_runId: string, _meta: unknown) => undefined)
@@ -91,6 +105,7 @@ const commitRunToGitMock = vi.fn(async (_params: {
   runId: string
   workspaceBackend?: 'host' | 'e2b' | null
 }) => ({ ok: false, skipped: 'no_changes' as const }))
+const closeSandboxWithRetryMock = vi.fn(async (_sandboxId: string) => undefined)
 
 vi.mock('encore.dev/pubsub', () => {
   class Topic<T> {
@@ -123,6 +138,8 @@ vi.mock('../../data/db', () => ({
   insertEventWithNextSeq: insertEventWithNextSeqMock,
   markJobFailed: markJobFailedMock,
   queueRunForRetry: queueRunForRetryMock,
+  setRunExecutionAttempt: setRunExecutionAttemptMock,
+  setRunSandboxId: setRunSandboxIdMock,
   setJobStatus: setJobStatusMock,
   updateRunMeta: updateRunMetaMock,
   updateRunStatus: updateRunStatusMock,
@@ -147,22 +164,38 @@ vi.mock('../../worker/gitCommit', () => ({
   commitRunToGit: commitRunToGitMock,
 }))
 
+vi.mock('../../common/e2bSandbox', () => ({
+  closeSandboxWithRetry: closeSandboxWithRetryMock,
+}))
+
 function buildRun(runId: string): RunRecordShape {
   const now = new Date('2026-02-12T00:00:00.000Z').toISOString()
   return {
     id: runId,
     status: 'queued',
+    projectId: 'default',
+    idempotencyKey: `lifecycle-${runId}`,
     prompt: 'Implement queue lifecycle tests',
     input: null,
     provider: 'openai',
     model: 'gpt-5',
     workspaceBackend: 'host',
+    sandboxId: null,
     output: null,
     error: null,
     inputTokens: null,
     outputTokens: null,
     totalTokens: null,
+    cachedInputTokens: null,
+    reasoningOutputTokens: null,
     durationMs: null,
+    attempt: 0,
+    maxAttempts: 3,
+    estimatedCostUsd: null,
+    costCurrency: 'USD',
+    pricingVersion: null,
+    startedAt: null,
+    completedAt: null,
     createdAt: now,
     updatedAt: now,
   }
@@ -207,12 +240,15 @@ describe('worker queue event lifecycle', () => {
     insertEventWithNextSeqMock.mockClear()
     markJobFailedMock.mockClear()
     queueRunForRetryMock.mockClear()
+    setRunExecutionAttemptMock.mockClear()
+    setRunSandboxIdMock.mockClear()
     setJobStatusMock.mockClear()
     updateRunMetaMock.mockClear()
     updateRunStatusMock.mockClear()
     runAgentMock.mockReset()
     syncRollbackManifestMock.mockClear()
     commitRunToGitMock.mockClear()
+    closeSandboxWithRetryMock.mockClear()
 
     runAgentMock.mockImplementation(async ({ runId, onEvent }: RunAgentParams) => {
       onEvent?.({

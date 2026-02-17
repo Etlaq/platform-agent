@@ -35,7 +35,7 @@ function toPrometheusLines(snapshot: MetricsSnapshot) {
 }
 
 export const metrics = api.raw(
-  { method: 'GET', path: '/metrics', expose: true, auth: true },
+  { method: 'GET', path: '/metrics', expose: false, auth: true },
   async (_req, res) => {
     const snapshot = await readMetricsSnapshot()
     const lines = toPrometheusLines(snapshot)
@@ -48,12 +48,12 @@ export const metrics = api.raw(
 )
 
 export const metricsV1 = api(
-  { method: 'GET', path: '/v1/metrics', expose: true, auth: true },
+  { method: 'GET', path: '/v1/metrics', expose: false, auth: true },
   async (): Promise<ApiSuccess<MetricsSnapshot>> => apiSuccess(await readMetricsSnapshot()),
 )
 
 export const metricsPrometheusV1 = api.raw(
-  { method: 'GET', path: '/v1/metrics/prometheus', expose: true, auth: true },
+  { method: 'GET', path: '/v1/metrics/prometheus', expose: false, auth: true },
   async (_req, res) => {
     const snapshot = await readMetricsSnapshot()
     const lines = toPrometheusLines(snapshot)

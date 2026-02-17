@@ -10,12 +10,15 @@ import {
   insertEventWithNextSeq,
   markJobFailed,
   queueRunForRetry,
+  setRunExecutionAttempt,
+  setRunSandboxId,
   setJobStatus,
   updateRunMeta,
   updateRunStatus,
 } from '../data/db'
 import { isRunAbortedError, runAgent, RunAbortedError } from '../agent/runAgent'
 import { commitRunToGit } from './gitCommit'
+import { closeSandboxWithRetry } from '../common/e2bSandbox'
 
 interface RunRequestedEvent {
   runId: string
@@ -100,6 +103,25 @@ async function emit(runId: string, type: string, payload: unknown) {
   await insertEventWithNextSeq({ runId, type, payload })
 }
 
+function parseSandboxIdFromStatusPayload(payload: unknown) {
+  if (!payload || typeof payload !== 'object' || Array.isArray(payload)) return null
+  const status = (payload as { status?: unknown }).status
+  if (status !== 'sandbox_created' && status !== 'sandbox_snapshot') return null
+  const sandboxId = (payload as { sandboxId?: unknown }).sandboxId
+  if (typeof sandboxId !== 'string') return null
+  const trimmed = sandboxId.trim()
+  return trimmed.length > 0 ? trimmed : null
+}
+
+async function closeSandboxIfPresent(sandboxId: string | null | undefined) {
+  if (!sandboxId) return
+  try {
+    await closeSandboxWithRetry(sandboxId)
+  } catch (error) {
+    console.error('queue: failed to close sandbox', error)
+  }
+}
+
 async function processRun(runId: string) {
   hydrateWorkerEnvFromSecrets()
 
@@ -157,6 +179,8 @@ async function processRun(runId: string) {
     const claimed = await claimRunForExecution(runId)
     if (!claimed) return
 
+    const currentAttempt = attempts + 1
+    await setRunExecutionAttempt(runId, currentAttempt, maxAttempts)
     await updateRunStatus(runId, 'running')
     await emit(runId, 'status', { status: 'running' })
 
@@ -165,6 +189,7 @@ async function processRun(runId: string) {
     let attemptTimeoutHandle: ReturnType<typeof setTimeout> | null = null
     let cancelCheckInFlight = false
     let eventChain = Promise.resolve()
+    let attemptSandboxId: string | null = latestRun.sandboxId ?? null
 
     const queueEmit = (type: string, payload: unknown) => {
       eventChain = eventChain
@@ -235,6 +260,14 @@ async function processRun(runId: string) {
               return
             }
             if (event.type === 'status') {
+              const sandboxId = parseSandboxIdFromStatusPayload(event.payload)
+              if (sandboxId && sandboxId !== attemptSandboxId) {
+                attemptSandboxId = sandboxId
+                void setRunSandboxId(runId, sandboxId).catch((error) => {
+                  console.error('queue: failed to persist sandbox id', error)
+                })
+              }
+
               const meta = parseSnapshotMeta(event.payload)
               if (meta) {
                 void updateRunMeta(runId, meta).catch((error) => {
@@ -248,6 +281,12 @@ async function processRun(runId: string) {
         abortPromise,
         attemptTimeoutPromise,
       ])
+      if (result.sandboxId && result.sandboxId !== attemptSandboxId) {
+        attemptSandboxId = result.sandboxId
+        await setRunSandboxId(runId, result.sandboxId).catch((error) => {
+          console.error('queue: failed to persist run sandbox id', error)
+        })
+      }
       if (attemptTimeoutHandle) {
         clearTimeout(attemptTimeoutHandle)
         attemptTimeoutHandle = null
@@ -369,6 +408,12 @@ async function processRun(runId: string) {
     } finally {
       if (cancelWatch) clearInterval(cancelWatch)
       if (attemptTimeoutHandle) clearTimeout(attemptTimeoutHandle)
+      await closeSandboxIfPresent(attemptSandboxId)
+      if (attemptSandboxId) {
+        await setRunSandboxId(runId, null).catch((error) => {
+          console.error('queue: failed to clear run sandbox id', error)
+        })
+      }
     }
   }
 }

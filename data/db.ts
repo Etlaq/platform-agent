@@ -5,6 +5,8 @@ export type JobStatus = 'queued' | 'running' | 'succeeded' | 'failed' | 'cancell
 
 export interface RunRecord {
   id: string
+  projectId: string
+  idempotencyKey: string | null
   status: RunStatus
   prompt: string
   input: unknown | null
@@ -20,6 +22,14 @@ export interface RunRecord {
   cachedInputTokens: number | null
   reasoningOutputTokens: number | null
   durationMs: number | null
+  attempt: number
+  maxAttempts: number
+  sandboxId: string | null
+  estimatedCostUsd: number | null
+  costCurrency: string | null
+  pricingVersion: string | null
+  startedAt: string | null
+  completedAt: string | null
   createdAt: string
   updatedAt: string
 }
@@ -34,6 +44,8 @@ export interface EventRecord {
 
 interface RunRow {
   id: string
+  project_id: string
+  idempotency_key: string | null
   status: RunStatus
   prompt: string
   input: unknown | null
@@ -49,6 +61,14 @@ interface RunRow {
   cached_input_tokens: number | null
   reasoning_output_tokens: number | null
   duration_ms: number | null
+  attempt: number
+  max_attempts: number
+  sandbox_id: string | null
+  estimated_cost_usd: number | string | null
+  cost_currency: string | null
+  pricing_version: string | null
+  started_at: Date | string | null
+  completed_at: Date | string | null
   created_at: Date | string
   updated_at: Date | string
 }
@@ -71,7 +91,76 @@ interface JobRow {
   updated_at: Date | string
 }
 
+interface PricingRow {
+  currency: string
+  input_cost_per_1k: number | string
+  output_cost_per_1k: number | string
+  cached_input_cost_per_1k: number | string
+  reasoning_output_cost_per_1k: number | string
+  pricing_version: string
+}
+
+interface PricingSpec {
+  currency: string
+  inputCostPer1k: number
+  outputCostPer1k: number
+  cachedInputCostPer1k: number
+  reasoningOutputCostPer1k: number
+  pricingVersion: string
+}
+
 const UNIQUE_VIOLATION = '23505'
+
+const DEFAULT_MODEL_PRICING: Record<string, PricingSpec> = {
+  'openai:gpt-5': {
+    currency: 'USD',
+    inputCostPer1k: 0.01,
+    outputCostPer1k: 0.03,
+    cachedInputCostPer1k: 0.001,
+    reasoningOutputCostPer1k: 0,
+    pricingVersion: 'default:v1',
+  },
+  'openai:gpt-5-mini': {
+    currency: 'USD',
+    inputCostPer1k: 0.0015,
+    outputCostPer1k: 0.006,
+    cachedInputCostPer1k: 0.00015,
+    reasoningOutputCostPer1k: 0,
+    pricingVersion: 'default:v1',
+  },
+  'openai:gpt-4.1': {
+    currency: 'USD',
+    inputCostPer1k: 0.01,
+    outputCostPer1k: 0.03,
+    cachedInputCostPer1k: 0.001,
+    reasoningOutputCostPer1k: 0,
+    pricingVersion: 'default:v1',
+  },
+  'anthropic:claude-3-7-sonnet-latest': {
+    currency: 'USD',
+    inputCostPer1k: 0.003,
+    outputCostPer1k: 0.015,
+    cachedInputCostPer1k: 0.0003,
+    reasoningOutputCostPer1k: 0,
+    pricingVersion: 'default:v1',
+  },
+  'xai:grok-3': {
+    currency: 'USD',
+    inputCostPer1k: 0.005,
+    outputCostPer1k: 0.015,
+    cachedInputCostPer1k: 0.0005,
+    reasoningOutputCostPer1k: 0,
+    pricingVersion: 'default:v1',
+  },
+  'zai:glm-4.5': {
+    currency: 'USD',
+    inputCostPer1k: 0.003,
+    outputCostPer1k: 0.009,
+    cachedInputCostPer1k: 0.0003,
+    reasoningOutputCostPer1k: 0,
+    pricingVersion: 'default:v1',
+  },
+}
 
 export const db = new SQLDatabase('agent', {
   migrations: './migrations',
@@ -82,9 +171,22 @@ function toIsoString(value: Date | string) {
   return new Date(value).toISOString()
 }
 
+function toMaybeIsoString(value: Date | string | null) {
+  if (!value) return null
+  if (value instanceof Date) return value.toISOString()
+  return new Date(value).toISOString()
+}
+
+function toFiniteNumber(value: unknown) {
+  const n = typeof value === 'number' ? value : Number(value)
+  return Number.isFinite(n) ? n : null
+}
+
 function toRunRecord(row: RunRow): RunRecord {
   return {
     id: row.id,
+    projectId: row.project_id,
+    idempotencyKey: row.idempotency_key ?? null,
     status: row.status,
     prompt: row.prompt,
     input: row.input ?? null,
@@ -100,6 +202,14 @@ function toRunRecord(row: RunRow): RunRecord {
     cachedInputTokens: row.cached_input_tokens ?? null,
     reasoningOutputTokens: row.reasoning_output_tokens ?? null,
     durationMs: row.duration_ms ?? null,
+    attempt: row.attempt ?? 0,
+    maxAttempts: row.max_attempts ?? 0,
+    sandboxId: row.sandbox_id ?? null,
+    estimatedCostUsd: toFiniteNumber(row.estimated_cost_usd),
+    costCurrency: row.cost_currency ?? null,
+    pricingVersion: row.pricing_version ?? null,
+    startedAt: toMaybeIsoString(row.started_at),
+    completedAt: toMaybeIsoString(row.completed_at),
     createdAt: toIsoString(row.created_at),
     updatedAt: toIsoString(row.updated_at),
   }
@@ -145,6 +255,81 @@ async function collectRows<T>(iterable: AsyncIterable<T>) {
   return rows
 }
 
+function normalizeLookup(value: string) {
+  return value.trim().toLowerCase()
+}
+
+function mapPricingRow(row: PricingRow): PricingSpec {
+  return {
+    currency: row.currency,
+    inputCostPer1k: Number(row.input_cost_per_1k) || 0,
+    outputCostPer1k: Number(row.output_cost_per_1k) || 0,
+    cachedInputCostPer1k: Number(row.cached_input_cost_per_1k) || 0,
+    reasoningOutputCostPer1k: Number(row.reasoning_output_cost_per_1k) || 0,
+    pricingVersion: row.pricing_version,
+  }
+}
+
+async function resolvePricing(provider: string, model: string): Promise<PricingSpec | null> {
+  const row = await db.queryRow<PricingRow>`
+    SELECT currency, input_cost_per_1k, output_cost_per_1k, cached_input_cost_per_1k, reasoning_output_cost_per_1k, pricing_version
+    FROM model_pricing
+    WHERE active = TRUE
+      AND provider = ${provider}
+      AND model = ${model}
+    ORDER BY updated_at DESC
+    LIMIT 1
+  `
+
+  if (row) return mapPricingRow(row)
+
+  const fallback = DEFAULT_MODEL_PRICING[`${normalizeLookup(provider)}:${normalizeLookup(model)}`]
+  return fallback ?? null
+}
+
+async function estimateCostUsd(meta: {
+  provider?: string
+  model?: string
+  usage?: { inputTokens: number; outputTokens: number; totalTokens: number }
+  cachedInputTokens?: number
+  reasoningOutputTokens?: number
+}) {
+  if (!meta.provider || !meta.model || !meta.usage) {
+    return {
+      estimatedCostUsd: null as number | null,
+      costCurrency: null as string | null,
+      pricingVersion: null as string | null,
+    }
+  }
+
+  const pricing = await resolvePricing(meta.provider, meta.model)
+  if (!pricing) {
+    return {
+      estimatedCostUsd: null as number | null,
+      costCurrency: null as string | null,
+      pricingVersion: null as string | null,
+    }
+  }
+
+  const inputTokens = Math.max(0, Number(meta.usage.inputTokens) || 0)
+  const outputTokens = Math.max(0, Number(meta.usage.outputTokens) || 0)
+  const cachedInputTokens = Math.max(0, Number(meta.cachedInputTokens) || 0)
+  const reasoningOutputTokens = Math.max(0, Number(meta.reasoningOutputTokens) || 0)
+
+  const usd = (
+    (inputTokens * pricing.inputCostPer1k) +
+    (outputTokens * pricing.outputCostPer1k) +
+    (cachedInputTokens * pricing.cachedInputCostPer1k) +
+    (reasoningOutputTokens * pricing.reasoningOutputCostPer1k)
+  ) / 1000
+
+  return {
+    estimatedCostUsd: Number(usd.toFixed(8)),
+    costCurrency: pricing.currency,
+    pricingVersion: pricing.pricingVersion,
+  }
+}
+
 export function resolveMaxJobAttempts() {
   const raw = process.env.MAX_JOB_ATTEMPTS
   const n = raw ? Number(raw) : NaN
@@ -173,8 +358,21 @@ export function resolveRequeueRunningAfterSeconds() {
   return Math.max(0, Math.min(86_400, Math.trunc(n)))
 }
 
+export async function getRunByProjectIdempotency(projectId: string, idempotencyKey: string) {
+  const row = await db.queryRow<RunRow>`
+    SELECT *
+    FROM runs
+    WHERE project_id = ${projectId}
+      AND idempotency_key = ${idempotencyKey}
+  `
+  if (!row) return null
+  return toRunRecord(row)
+}
+
 export async function createQueuedRun(params: {
   id: string
+  projectId: string
+  idempotencyKey: string
   prompt: string
   input?: unknown
   provider?: string
@@ -185,10 +383,56 @@ export async function createQueuedRun(params: {
   const maxAttempts = params.maxAttempts ?? resolveMaxJobAttempts()
   const tx = await db.begin()
   try {
-    await tx.exec`
-      INSERT INTO runs (id, status, prompt, input, provider, model, workspace_backend)
-      VALUES (${params.id}, 'queued', ${params.prompt}, ${params.input ?? null}::jsonb, ${params.provider ?? null}, ${params.model ?? null}, ${params.workspaceBackend ?? null})
+    const inserted = await tx.queryRow<RunRow>`
+      INSERT INTO runs (
+        id,
+        project_id,
+        idempotency_key,
+        status,
+        prompt,
+        input,
+        provider,
+        model,
+        workspace_backend,
+        max_attempts,
+        attempt
+      )
+      VALUES (
+        ${params.id},
+        ${params.projectId},
+        ${params.idempotencyKey},
+        'queued',
+        ${params.prompt},
+        ${params.input ?? null}::jsonb,
+        ${params.provider ?? null},
+        ${params.model ?? null},
+        ${params.workspaceBackend ?? null},
+        ${maxAttempts},
+        0
+      )
+      ON CONFLICT (project_id, idempotency_key)
+      DO NOTHING
+      RETURNING *
     `
+
+    if (!inserted) {
+      const existing = await tx.queryRow<RunRow>`
+        SELECT *
+        FROM runs
+        WHERE project_id = ${params.projectId}
+          AND idempotency_key = ${params.idempotencyKey}
+      `
+      await tx.commit()
+
+      if (!existing) {
+        throw new Error('idempotency_conflict_without_existing_run')
+      }
+
+      return {
+        run: toRunRecord(existing),
+        created: false,
+      }
+    }
 
     await tx.exec`
       INSERT INTO events (run_id, seq, type, payload)
@@ -208,8 +452,24 @@ export async function createQueuedRun(params: {
     `
 
     await tx.commit()
+
+    return {
+      run: toRunRecord(inserted),
+      created: true,
+    }
   } catch (error) {
     await tx.rollback().catch(() => undefined)
+
+    if (isUniqueViolation(error)) {
+      const existing = await getRunByProjectIdempotency(params.projectId, params.idempotencyKey)
+      if (existing) {
+        return {
+          run: existing,
+          created: false,
+        }
+      }
+    }
+
     throw error
   }
 }
@@ -237,10 +497,41 @@ export async function getRun(id: string) {
   return toRunRecord(row)
 }
 
+export async function setRunExecutionAttempt(runId: string, attempt: number, maxAttempts: number) {
+  await db.exec`
+    UPDATE runs
+    SET attempt = ${Math.max(0, Math.trunc(attempt))},
+        max_attempts = ${Math.max(1, Math.trunc(maxAttempts))},
+        started_at = COALESCE(started_at, NOW()),
+        completed_at = NULL,
+        updated_at = NOW()
+    WHERE id = ${runId}
+  `
+}
+
+export async function setRunSandboxId(runId: string, sandboxId: string | null) {
+  await db.exec`
+    UPDATE runs
+    SET sandbox_id = ${sandboxId},
+        updated_at = NOW()
+    WHERE id = ${runId}
+  `
+}
+
 export async function updateRunStatus(id: string, status: RunStatus) {
   await db.exec`
     UPDATE runs
-    SET status = ${status}, updated_at = NOW()
+    SET status = ${status},
+        started_at = CASE
+          WHEN ${status} = 'running' THEN COALESCE(started_at, NOW())
+          ELSE started_at
+        END,
+        completed_at = CASE
+          WHEN ${status} IN ('completed', 'error', 'cancelled') THEN COALESCE(completed_at, NOW())
+          WHEN ${status} = 'queued' THEN NULL
+          ELSE completed_at
+        END,
+        updated_at = NOW()
     WHERE id = ${id}
       AND (
         (${status} = 'running' AND status IN ('queued', 'running'))
@@ -265,7 +556,7 @@ export async function claimRunForExecution(runId: string) {
     ),
     claimed_run AS (
       UPDATE runs
-      SET status = 'running', updated_at = NOW()
+      SET status = 'running', updated_at = NOW(), started_at = COALESCE(started_at, NOW()), completed_at = NULL
       WHERE id IN (
         SELECT id
         FROM eligible
@@ -359,6 +650,15 @@ export async function completeRun(id: string, output: string, meta?: {
   const cachedInputTokens = meta?.cachedInputTokens ?? null
   const reasoningOutputTokens = meta?.reasoningOutputTokens ?? null
   const durationMs = meta?.durationMs ?? null
+
+  const estimated = await estimateCostUsd({
+    provider: provider ?? undefined,
+    model: model ?? undefined,
+    usage: meta?.usage,
+    cachedInputTokens: cachedInputTokens ?? undefined,
+    reasoningOutputTokens: reasoningOutputTokens ?? undefined,
+  })
+
   await db.exec`
     UPDATE runs
     SET status = 'completed',
@@ -372,6 +672,10 @@ export async function completeRun(id: string, output: string, meta?: {
         cached_input_tokens = ${cachedInputTokens},
         reasoning_output_tokens = ${reasoningOutputTokens},
         duration_ms = ${durationMs},
+        estimated_cost_usd = COALESCE(${estimated.estimatedCostUsd}, estimated_cost_usd),
+        cost_currency = COALESCE(${estimated.costCurrency}, cost_currency),
+        pricing_version = COALESCE(${estimated.pricingVersion}, pricing_version),
+        completed_at = NOW(),
         updated_at = NOW()
     WHERE id = ${id} AND status = 'running'
   `
@@ -415,7 +719,7 @@ export async function updateRunMeta(id: string, meta: {
 export async function failRun(id: string, error: string) {
   await db.exec`
     UPDATE runs
-    SET status = 'error', error = ${error}, updated_at = NOW()
+    SET status = 'error', error = ${error}, completed_at = NOW(), updated_at = NOW()
     WHERE id = ${id} AND status = 'running'
   `
 }
@@ -423,7 +727,7 @@ export async function failRun(id: string, error: string) {
 export async function cancelRun(id: string) {
   await db.exec`
     UPDATE runs
-    SET status = 'cancelled', updated_at = NOW()
+    SET status = 'cancelled', completed_at = NOW(), updated_at = NOW()
     WHERE id = ${id}
       AND status IN ('queued', 'running', 'cancelled')
   `
@@ -432,7 +736,7 @@ export async function cancelRun(id: string) {
 export async function queueRunForRetry(id: string) {
   await db.exec`
     UPDATE runs
-    SET status = 'queued', updated_at = NOW()
+    SET status = 'queued', completed_at = NULL, updated_at = NOW()
     WHERE id = ${id} AND status = 'running'
   `
 }

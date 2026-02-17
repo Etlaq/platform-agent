@@ -303,51 +303,51 @@ async function stopSandboxDevServer(payload: SandboxStopRequest): Promise<Sandbo
 }
 
 export const exec = api(
-  { method: 'POST', path: '/exec', expose: true, auth: true },
+  { method: 'POST', path: '/exec', expose: false, auth: true },
   async (payload: ExecRequest): Promise<ExecResponse> => runExec(payload),
 )
 
 export const execV1 = api(
-  { method: 'POST', path: '/v1/exec', expose: true, auth: true },
+  { method: 'POST', path: '/v1/exec', expose: false, auth: true },
   async (payload: ExecRequest): Promise<ApiSuccess<ExecResponse>> => apiSuccess(await runExec(payload)),
 )
 
 export const sandboxCreate = api(
-  { method: 'POST', path: '/sandbox/create', expose: true, auth: true },
+  { method: 'POST', path: '/sandbox/create', expose: false, auth: true },
   async (payload: SandboxCreateRequest): Promise<SandboxCreateResponse> => createSandbox(payload),
 )
 
 export const sandboxCreateV1 = api(
-  { method: 'POST', path: '/v1/sandbox/create', expose: true, auth: true },
+  { method: 'POST', path: '/v1/sandbox/create', expose: false, auth: true },
   async (payload: SandboxCreateRequest): Promise<ApiSuccess<SandboxCreateResponse>> => apiSuccess(await createSandbox(payload)),
 )
 
 export const sandboxInfo = api(
-  { method: 'POST', path: '/sandbox/info', expose: true, auth: true },
+  { method: 'POST', path: '/sandbox/info', expose: false, auth: true },
   async (payload: SandboxInfoRequest): Promise<SandboxInfoResponse> => getSandboxInfo(payload),
 )
 
 export const sandboxInfoV1 = api(
-  { method: 'POST', path: '/v1/sandbox/info', expose: true, auth: true },
+  { method: 'POST', path: '/v1/sandbox/info', expose: false, auth: true },
   async (payload: SandboxInfoRequest): Promise<ApiSuccess<SandboxInfoResponse>> => apiSuccess(await getSandboxInfo(payload)),
 )
 
 export const sandboxDevStart = api(
-  { method: 'POST', path: '/sandbox/dev/start', expose: true, auth: true },
+  { method: 'POST', path: '/sandbox/dev/start', expose: false, auth: true },
   async (payload: SandboxStartRequest): Promise<SandboxStartResponse> => startSandboxDevServer(payload),
 )
 
 export const sandboxDevStartV1 = api(
-  { method: 'POST', path: '/v1/sandbox/dev/start', expose: true, auth: true },
+  { method: 'POST', path: '/v1/sandbox/dev/start', expose: false, auth: true },
   async (payload: SandboxStartRequest): Promise<ApiSuccess<SandboxStartResponse>> => apiSuccess(await startSandboxDevServer(payload)),
 )
 
 export const sandboxDevStop = api(
-  { method: 'POST', path: '/sandbox/dev/stop', expose: true, auth: true },
+  { method: 'POST', path: '/sandbox/dev/stop', expose: false, auth: true },
   async (payload: SandboxStopRequest): Promise<SandboxStopResponse> => stopSandboxDevServer(payload),
 )
 
 export const sandboxDevStopV1 = api(
-  { method: 'POST', path: '/v1/sandbox/dev/stop', expose: true, auth: true },
+  { method: 'POST', path: '/v1/sandbox/dev/stop', expose: false, auth: true },
   async (payload: SandboxStopRequest): Promise<ApiSuccess<SandboxStopResponse>> => apiSuccess(await stopSandboxDevServer(payload)),
 )
