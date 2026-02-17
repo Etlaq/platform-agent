@@ -72,10 +72,12 @@ function isTimeoutError(err: unknown) {
 async function cleanupStaleNextBuild(params: { sandbox: Sandbox; cwd: string }) {
   // E2B command timeouts can leave orphaned build processes behind.
   // Kill stale Next.js build processes before/after build attempts.
+  // Use bracketed regex chars to avoid matching this cleanup shell itself.
   const cleanupCmd =
-    "pkill -f '/node_modules/.bin/next build' || true; " +
-    "pkill -f '/.next/build/postcss.js' || true; " +
-    "pkill -f 'bun run build' || true; " +
+    "pkill -f 'node .*/node_modules/.bin/[n]ext build' || true; " +
+    "pkill -f 'node .*/\\.next/build/[p]ostcss\\.js' || true; " +
+    "pkill -f 'node .*/\\.next/dev/build/[p]ostcss\\.js' || true; " +
+    "pkill -f '(^| )b[u]n run build( |$)' || true; " +
     "rm -f .next/lock || true"
   await params.sandbox.commands.run(cleanupCmd, {
     cwd: params.cwd,
