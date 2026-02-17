@@ -152,6 +152,20 @@ export function resolveMaxJobAttempts() {
   return Math.max(1, Math.min(20, Math.trunc(n)))
 }
 
+export function resolveWorkerKickQueuedLimit() {
+  const raw = process.env.WORKER_KICK_QUEUED_LIMIT
+  const n = raw ? Number(raw) : NaN
+  if (!Number.isFinite(n)) return 50
+  return Math.max(1, Math.min(500, Math.trunc(n)))
+}
+
+export function resolveWorkerKickQueuedMinAgeSeconds() {
+  const raw = process.env.WORKER_KICK_QUEUED_MIN_AGE_S
+  const n = raw ? Number(raw) : NaN
+  if (!Number.isFinite(n)) return 30
+  return Math.max(0, Math.min(86_400, Math.trunc(n)))
+}
+
 export function resolveRequeueRunningAfterSeconds() {
   const raw = process.env.WORKER_REQUEUE_RUNNING_AFTER_S
   const n = raw ? Number(raw) : NaN
@@ -298,6 +312,33 @@ export async function listRunnableQueuedJobRunIds(params?: {
 
   const queued = await collectRows(rows)
   return queued.map((row) => row.run_id)
+}
+
+export async function countRunnableQueuedJobs(params?: {
+  minQueuedAgeSeconds?: number
+}) {
+  const minAgeSeconds = Math.max(0, Math.min(86_400, Math.trunc(params?.minQueuedAgeSeconds ?? 0)))
+  const row = await db.queryRow<{ count: number }>`
+    SELECT COUNT(*)::int as count
+    FROM jobs
+    WHERE status = 'queued'
+      AND next_run_at <= NOW()
+      AND updated_at < NOW() - (${minAgeSeconds} || ' seconds')::interval
+  `
+  return row?.count ?? 0
+}
+
+export async function countStaleRunningJobs(staleSeconds: number) {
+  const safeStaleSeconds = Math.max(0, Math.min(86_400, Math.trunc(staleSeconds)))
+  if (safeStaleSeconds <= 0) return 0
+
+  const row = await db.queryRow<{ count: number }>`
+    SELECT COUNT(*)::int as count
+    FROM jobs
+    WHERE status = 'running'
+      AND updated_at < NOW() - (${safeStaleSeconds} || ' seconds')::interval
+  `
+  return row?.count ?? 0
 }
 
 export async function completeRun(id: string, output: string, meta?: {

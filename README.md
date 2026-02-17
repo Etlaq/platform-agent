@@ -41,6 +41,9 @@ Detailed request/worker lifecycle and troubleshooting are documented in `docs/ap
 | GET | `/v1/runs/:id/artifacts` | List run artifacts |
 | GET | `/v1/runs/:id/rollback` | Get rollback manifest |
 | POST | `/v1/runs/:id/rollback` | Restore workspace to pre-run state |
+| GET | `/v1/workflows/status` | Queue/worker workflow health and counts |
+| POST | `/v1/workflows/kick` | Enqueue runnable queued jobs immediately |
+| POST | `/v1/workflows/requeue-stale` | Recover stale running jobs and re-enqueue |
 | POST | `/v1/exec` | Execute command in E2B sandbox |
 | POST | `/v1/sandbox/create` | Create E2B sandbox |
 | POST | `/v1/sandbox/info` | Sandbox info |
@@ -74,6 +77,24 @@ Each run is processed in two phases:
 In E2B mode, an optional **auto-lint** pass runs after build to fix lint errors automatically.
 
 After successful host runs, workspace changes are staged and committed to Git automatically (unless `AUTO_GIT_COMMIT=false`).
+
+## Workflow Control
+
+The backend now exposes workflow control APIs so run processing can be operated directly from this service:
+
+- `GET /v1/workflows/status`
+- `POST /v1/workflows/kick`
+- `POST /v1/workflows/requeue-stale`
+
+These use the same queue knobs as the worker cron (`WORKER_KICK_QUEUED_LIMIT`, `WORKER_KICK_QUEUED_MIN_AGE_S`, `WORKER_REQUEUE_RUNNING_AFTER_S`).
+
+```bash
+curl -s -H "X-Agent-Api-Key: $AGENT_API_KEY" http://localhost:4000/v1/workflows/status | jq '.data.queue'
+curl -s -X POST -H "X-Agent-Api-Key: $AGENT_API_KEY" -H "Content-Type: application/json" \
+  -d '{"limit":25,"minQueuedAgeSeconds":15}' http://localhost:4000/v1/workflows/kick | jq '.data'
+curl -s -X POST -H "X-Agent-Api-Key: $AGENT_API_KEY" -H "Content-Type: application/json" \
+  -d '{"staleSeconds":120}' http://localhost:4000/v1/workflows/requeue-stale | jq '.data'
+```
 
 ## Services
 

@@ -39,6 +39,9 @@ interface CapabilitiesResponse {
 const PUBLIC_V1_ENDPOINTS = ['/v1', '/v1/health', '/v1/capabilities']
 const AUTH_V1_ENDPOINTS = [
   '/v1/runs',
+  '/v1/workflows/status',
+  '/v1/workflows/kick',
+  '/v1/workflows/requeue-stale',
   '/v1/exec',
   '/v1/download.zip',
   '/v1/sandbox/:id/download.zip',

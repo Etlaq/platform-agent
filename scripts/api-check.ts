@@ -167,7 +167,30 @@ async function runChecks(opts: CheckOptions) {
       throw new Error(`Deep check failed for run ${runId}: expected status+done events, got [${eventNames.slice(-20).join(', ')}]`)
     }
 
-    console.log(`[api-check] deep events=${events.length} artifacts=${artifacts.length}`)
+    const workflowStatus = await request<{
+      queue: {
+        runnableQueued: number
+        staleRunning: number
+        kickLimit: number
+        kickMinQueuedAgeSeconds: number
+        requeueRunningAfterSeconds: number
+      }
+      counts: {
+        runs: Array<{ status: string; count: number }>
+        jobs: Array<{ status: string; count: number }>
+      }
+    }>(opts, '/v1/workflows/status', 'GET')
+
+    if (
+      typeof workflowStatus.queue?.runnableQueued !== 'number'
+      || typeof workflowStatus.queue?.staleRunning !== 'number'
+    ) {
+      throw new Error('Deep check failed: workflow status payload is missing queue counters.')
+    }
+
+    console.log(
+      `[api-check] deep events=${events.length} artifacts=${artifacts.length} queued=${workflowStatus.queue.runnableQueued} stale=${workflowStatus.queue.staleRunning}`,
+    )
   }
 
   console.log(`[api-check] success run=${runId}`)

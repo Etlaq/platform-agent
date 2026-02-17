@@ -8,14 +8,24 @@ import {
   addArtifact,
   cancelJobByRunId,
   cancelRun,
+  countRunnableQueuedJobs,
+  countStaleRunningJobs,
   createQueuedRun,
   getRun,
+  getJobsStatusCounts,
+  getRunsStatusCounts,
   insertEventWithNextSeq,
   listArtifacts,
   listEvents,
   listEventsAfter,
+  listRunnableQueuedJobRunIds,
   listRuns,
   resolveMaxJobAttempts,
+  resolveRequeueRunningAfterSeconds,
+  resolveWorkerKickQueuedLimit,
+  resolveWorkerKickQueuedMinAgeSeconds,
+  requeueStaleRunningJobs,
+  updateRunStatus,
 } from '../data/db'
 import { getJsonObject, readRollbackManifestFromDisk, rollbackManifestKey, rollbackRootPath, syncRollbackManifest } from '../storage/storage'
 import { enqueueRun } from '../worker/queue'
@@ -90,6 +100,42 @@ interface RegisterArtifactRequest extends RunPathRequest {
 
 interface RegisterArtifactResponse {
   ok: true
+}
+
+interface WorkflowStatusResponse {
+  queue: {
+    kickLimit: number
+    kickMinQueuedAgeSeconds: number
+    requeueRunningAfterSeconds: number
+    runnableQueued: number
+    staleRunning: number
+  }
+  counts: {
+    runs: Array<{ status: string; count: number }>
+    jobs: Array<{ status: string; count: number }>
+  }
+}
+
+interface WorkflowKickRequest {
+  limit?: number
+  minQueuedAgeSeconds?: number
+}
+
+interface WorkflowKickResponse {
+  enqueued: number
+  runIds: string[]
+  limit: number
+  minQueuedAgeSeconds: number
+}
+
+interface WorkflowRequeueRequest {
+  staleSeconds?: number
+}
+
+interface WorkflowRequeueResponse {
+  requeued: number
+  runIds: string[]
+  staleSeconds: number
 }
 
 function writeSSE(
@@ -428,6 +474,87 @@ async function registerRunArtifact(req: RegisterArtifactRequest): Promise<Regist
   return { ok: true }
 }
 
+function parseBoundedInt(value: unknown, fallback: number, opts: { min: number; max: number }) {
+  const n = typeof value === 'number' ? value : Number(value)
+  if (!Number.isFinite(n)) return fallback
+  return Math.max(opts.min, Math.min(opts.max, Math.trunc(n)))
+}
+
+async function getWorkflowStatus(): Promise<WorkflowStatusResponse> {
+  const kickLimit = resolveWorkerKickQueuedLimit()
+  const kickMinQueuedAgeSeconds = resolveWorkerKickQueuedMinAgeSeconds()
+  const requeueRunningAfterSeconds = resolveRequeueRunningAfterSeconds()
+
+  const [runsCounts, jobsCounts, runnableQueued, staleRunning] = await Promise.all([
+    getRunsStatusCounts(),
+    getJobsStatusCounts(),
+    countRunnableQueuedJobs({ minQueuedAgeSeconds: kickMinQueuedAgeSeconds }),
+    countStaleRunningJobs(requeueRunningAfterSeconds),
+  ])
+
+  return {
+    queue: {
+      kickLimit,
+      kickMinQueuedAgeSeconds,
+      requeueRunningAfterSeconds,
+      runnableQueued,
+      staleRunning,
+    },
+    counts: {
+      runs: runsCounts,
+      jobs: jobsCounts,
+    },
+  }
+}
+
+async function kickWorkflowRuns(req: WorkflowKickRequest): Promise<WorkflowKickResponse> {
+  const limit = parseBoundedInt(req.limit, resolveWorkerKickQueuedLimit(), { min: 1, max: 500 })
+  const minQueuedAgeSeconds = parseBoundedInt(
+    req.minQueuedAgeSeconds,
+    resolveWorkerKickQueuedMinAgeSeconds(),
+    { min: 0, max: 86_400 },
+  )
+
+  const runIds = await listRunnableQueuedJobRunIds({ limit, minQueuedAgeSeconds })
+  for (const runId of runIds) {
+    await enqueueRun(runId)
+  }
+
+  return {
+    enqueued: runIds.length,
+    runIds,
+    limit,
+    minQueuedAgeSeconds,
+  }
+}
+
+async function requeueStaleWorkflowRuns(req: WorkflowRequeueRequest): Promise<WorkflowRequeueResponse> {
+  const staleSeconds = parseBoundedInt(
+    req.staleSeconds,
+    resolveRequeueRunningAfterSeconds(),
+    { min: 0, max: 86_400 },
+  )
+  if (staleSeconds <= 0) {
+    return {
+      requeued: 0,
+      runIds: [],
+      staleSeconds,
+    }
+  }
+
+  const runIds = await requeueStaleRunningJobs(staleSeconds)
+  for (const runId of runIds) {
+    await updateRunStatus(runId, 'queued')
+    await enqueueRun(runId)
+  }
+
+  return {
+    requeued: runIds.length,
+    runIds,
+    staleSeconds,
+  }
+}
+
 export const createRun = api.raw(
   { method: 'POST', path: '/runs', expose: true, auth: true },
   async (req, res) => handleCreateRunRequest(req, res, false),
@@ -526,4 +653,19 @@ export const registerArtifact = api(
 export const registerArtifactV1 = api(
   { method: 'POST', path: '/v1/runs/:id/artifacts/register', expose: true, auth: true },
   async (req: RegisterArtifactRequest): Promise<ApiSuccess<RegisterArtifactResponse>> => apiSuccess(await registerRunArtifact(req)),
+)
+
+export const workflowsStatusV1 = api(
+  { method: 'GET', path: '/v1/workflows/status', expose: true, auth: true },
+  async (): Promise<ApiSuccess<WorkflowStatusResponse>> => apiSuccess(await getWorkflowStatus()),
+)
+
+export const workflowsKickV1 = api(
+  { method: 'POST', path: '/v1/workflows/kick', expose: true, auth: true },
+  async (req: WorkflowKickRequest): Promise<ApiSuccess<WorkflowKickResponse>> => apiSuccess(await kickWorkflowRuns(req)),
+)
+
+export const workflowsRequeueStaleV1 = api(
+  { method: 'POST', path: '/v1/workflows/requeue-stale', expose: true, auth: true },
+  async (req: WorkflowRequeueRequest): Promise<ApiSuccess<WorkflowRequeueResponse>> => apiSuccess(await requeueStaleWorkflowRuns(req)),
 )

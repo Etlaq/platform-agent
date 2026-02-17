@@ -34,6 +34,9 @@ All endpoints below require either:
 | `GET` | `/v1/runs/:id/rollback` | Fetch rollback manifest |
 | `POST` | `/v1/runs/:id/rollback` | Restore snapshot (`confirm=rollback`) |
 | `POST` | `/v1/runs/:id/artifacts/register` | Register artifact metadata |
+| `GET` | `/v1/workflows/status` | Queue/worker workflow health summary |
+| `POST` | `/v1/workflows/kick` | Enqueue runnable queued jobs now |
+| `POST` | `/v1/workflows/requeue-stale` | Requeue stale running jobs and enqueue |
 | `POST` | `/v1/exec` | Execute a command inside E2B sandbox |
 | `POST` | `/v1/sandbox/create` | Create E2B sandbox |
 | `POST` | `/v1/sandbox/info` | Fetch sandbox status/ports |
@@ -114,6 +117,12 @@ Flow:
 2. Worker claims run/job atomically.
 3. Worker sets run status `running`.
 4. Worker emits `status: running`.
+
+Manual recovery/operations APIs:
+
+- `POST /v1/workflows/kick` to force-enqueue runnable queued jobs
+- `POST /v1/workflows/requeue-stale` to recover stale running jobs
+- `GET /v1/workflows/status` for queue health (runnable queued/stale running + run/job counts)
 
 ### Step C: Agent executes two phases
 
@@ -280,6 +289,9 @@ curl -s -X POST "$API/v1/exec" \
   -H "X-Agent-Api-Key: $KEY" \
   -H "Content-Type: application/json" \
   -d "{\"sandboxId\":\"$SID\",\"cmd\":\"sleep 120\",\"timeoutMs\":5000}" | jq '.data'
+
+# 7) Workflow control-plane status
+curl -s -H "X-Agent-Api-Key: $KEY" "$API/v1/workflows/status" | jq '.data.queue,.data.counts.jobs'
 ```
 
 Healthy run expectations:
