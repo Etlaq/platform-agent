@@ -7,7 +7,9 @@
     "start": "encore run",
     "test": "bun test",
     "test:encore": "encore test",
-    "typecheck": "tsc --noEmit"
+    "typecheck": "tsc --noEmit",
+    "api:check:smoke": "bun run scripts/api-check.ts --mode=smoke",
+    "api:check:deep": "bun run scripts/api-check.ts --mode=deep"
   },
   "dependencies": {
     "@e2b/code-interpreter": "latest",

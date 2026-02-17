@@ -495,7 +495,8 @@ export async function runAgent(params: AgentRunInput): Promise<{
         sandboxId,
         appDir,
         nextjsUrl: `https://${sandbox.getHost(3000)}`,
-        downloadPath: `/sandbox/${sandboxId}/download.zip`,
+        downloadPath: `/v1/sandbox/${sandboxId}/download.zip`,
+        legacyDownloadPath: `/sandbox/${sandboxId}/download.zip`,
       },
     })
 
@@ -1083,7 +1084,8 @@ export async function runAgent(params: AgentRunInput): Promise<{
               status: 'sandbox_snapshot',
               runId,
               sandboxId,
-              downloadPath: sandboxId ? `/sandbox/${sandboxId}/download.zip` : null,
+              downloadPath: sandboxId ? `/v1/sandbox/${sandboxId}/download.zip` : null,
+              legacyDownloadPath: sandboxId ? `/sandbox/${sandboxId}/download.zip` : null,
               touchedFiles: touchedFiles ? Array.from(touchedFiles.values()) : [],
               lintPassed: sawSuccessfulBuildCommand ? sawSuccessfulLintCommand : null,
               usage,

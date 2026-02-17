@@ -1,0 +1,73 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Platform Agent Deployed Client</title>
+    <link rel="stylesheet" href="./styles.css" />
+  </head>
+  <body>
+    <main class="page">
+      <header class="hero">
+        <h1>Deployed Agent Console</h1>
+        <p>Run and inspect jobs against deployed API environments.</p>
+      </header>
+
+      <section class="card grid-2">
+        <label>
+          API Base URL
+          <input id="apiBase" type="text" value="https://staging-platform-agent-3p2i.encr.app" />
+        </label>
+        <label>
+          X-Agent-Api-Key
+          <input id="apiKey" type="password" placeholder="Paste your key" />
+        </label>
+      </section>
+
+      <section class="actions">
+        <button id="healthBtn">Check Health</button>
+        <button id="capBtn">Get Capabilities</button>
+      </section>
+
+      <section class="card">
+        <h2>Create Run</h2>
+        <label>
+          Prompt
+          <textarea id="prompt" rows="5">Create a clean bilingual (Arabic + English) Next.js web app with hero, features, pricing, and contact form. Run lint and build.</textarea>
+        </label>
+        <div class="grid-3">
+          <label>
+            Workspace Backend
+            <select id="workspaceBackend">
+              <option value="e2b" selected>e2b</option>
+              <option value="host">host</option>
+            </select>
+          </label>
+          <label>
+            Provider
+            <input id="provider" type="text" value="zai" />
+          </label>
+          <label>
+            Model
+            <input id="model" type="text" value="glm-5" />
+          </label>
+        </div>
+        <div class="actions">
+          <button id="createRunBtn">Create Run</button>
+          <button id="pollBtn">Poll Run</button>
+        </div>
+        <label>
+          Run ID
+          <input id="runId" type="text" placeholder="Run ID appears here" />
+        </label>
+      </section>
+
+      <section class="card">
+        <h2>Output</h2>
+        <pre id="output">Ready.</pre>
+      </section>
+    </main>
+
+    <script type="module" src="./app.js"></script>
+  </body>
+</html>

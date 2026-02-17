@@ -1,5 +1,6 @@
 import { APIError } from 'encore.dev/api'
 import { type IncomingMessage, type ServerResponse } from 'node:http'
+import { apiFailure, apiSuccess } from './apiContract'
 
 async function readBody(req: IncomingMessage) {
   const chunks: Buffer[] = []
@@ -32,4 +33,20 @@ export function parsePathPart(req: IncomingMessage, index: number) {
   const url = new URL(req.url ?? '/', 'http://localhost')
   const parts = url.pathname.split('/').filter(Boolean)
   return parts[index] ?? ''
+}
+
+export function parsePathPartAfter(req: IncomingMessage, segment: string, offset = 1) {
+  const url = new URL(req.url ?? '/', 'http://localhost')
+  const parts = url.pathname.split('/').filter(Boolean)
+  const segIndex = parts.findIndex((part) => part === segment)
+  if (segIndex === -1) return ''
+  return parts[segIndex + offset] ?? ''
+}
+
+export function writeApiSuccess<T>(res: ServerResponse, status: number, data: T) {
+  writeJson(res, status, apiSuccess(data))
+}
+
+export function writeApiError(res: ServerResponse, status: number, code: string, message: string) {
+  writeJson(res, status, apiFailure(code, message))
 }

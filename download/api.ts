@@ -1,10 +1,11 @@
 import { api } from 'encore.dev/api'
 import fs from 'node:fs'
 import path from 'node:path'
+import { type IncomingMessage, type ServerResponse } from 'node:http'
 import { Sandbox } from '@e2b/code-interpreter'
 import { assertE2BConfigured, resolveSandboxAppDir } from '../common/e2b'
 import { connectSandboxWithRetry } from '../common/e2bSandbox'
-import { parsePathPart, writeJson } from '../common/http'
+import { parsePathPartAfter, writeJson } from '../common/http'
 import { parseByteLimit, resolveWorkspaceRoot, toPosixRelPath } from '../common/workspace'
 import { isDeniedEnvFile, isDeniedSensitiveFile } from '../common/fileSensitivity'
 import { createStoredZipStream, readWebStream } from '../common/zip'
@@ -215,105 +216,119 @@ function createZipStreamFromSandbox(sb: Sandbox, files: SandboxZipFile[]) {
   return createStoredZipStream(files, (file) => readSandboxChunks(sb, file.absPath))
 }
 
+async function handleDownloadZip(_req: IncomingMessage, res: ServerResponse) {
+  const root = resolveWorkspaceRoot()
+
+  let st: fs.Stats
+  try {
+    st = await fs.promises.stat(root)
+  } catch {
+    writeJson(res, 400, { error: `WORKSPACE_ROOT not found: ${root}` })
+    return
+  }
+
+  if (!st.isDirectory()) {
+    writeJson(res, 400, { error: `WORKSPACE_ROOT is not a directory: ${root}` })
+    return
+  }
+
+  const maxBytes = parseByteLimit(process.env.ZIP_MAX_BYTES, 250 * 1024 * 1024)
+  const maxFiles = parseByteLimit(process.env.ZIP_MAX_FILES, 20_000)
+
+  let files: FileEntry[]
+  try {
+    files = await collectFiles(root, { maxBytes, maxFiles })
+  } catch (error) {
+    writeJson(res, 413, { error: error instanceof Error ? error.message : String(error) })
+    return
+  }
+
+  const stream = createZipStream(files)
+  const reader = stream.getReader()
+
+  res.statusCode = 200
+  res.setHeader('content-type', 'application/zip')
+  res.setHeader('content-disposition', 'attachment; filename="workspace.zip"')
+  res.setHeader('cache-control', 'no-store')
+
+  try {
+    while (true) {
+      const { value, done } = await reader.read()
+      if (done) break
+      if (value) {
+        res.write(Buffer.from(value))
+      }
+    }
+    res.end()
+  } catch (error) {
+    writeJson(res, 500, { error: error instanceof Error ? error.message : String(error) })
+  } finally {
+    reader.releaseLock()
+  }
+}
+
+async function handleDownloadSandboxZip(req: IncomingMessage, res: ServerResponse) {
+  assertE2BConfigured()
+
+  const id = parsePathPartAfter(req, 'sandbox')
+  if (!id) {
+    writeJson(res, 400, { error: 'sandbox id is required' })
+    return
+  }
+
+  const appDir = resolveSandboxAppDir()
+  const maxBytes = parseByteLimit(process.env.ZIP_MAX_BYTES, 250 * 1024 * 1024)
+  const maxFiles = parseByteLimit(process.env.ZIP_MAX_FILES, 20_000)
+  const sb = await connectSandboxWithRetry(id)
+
+  let files: SandboxZipFile[]
+  try {
+    files = await collectSandboxFiles(sb, appDir, { maxBytes, maxFiles })
+  } catch (error) {
+    writeJson(res, 413, { error: error instanceof Error ? error.message : String(error) })
+    return
+  }
+
+  const stream = createZipStreamFromSandbox(sb, files)
+  const reader = stream.getReader()
+
+  res.statusCode = 200
+  res.setHeader('content-type', 'application/zip')
+  res.setHeader('content-disposition', 'attachment; filename="workspace.zip"')
+  res.setHeader('cache-control', 'no-store')
+
+  try {
+    while (true) {
+      const { value, done } = await reader.read()
+      if (done) break
+      if (value) {
+        res.write(Buffer.from(value))
+      }
+    }
+    res.end()
+  } catch (error) {
+    writeJson(res, 500, { error: error instanceof Error ? error.message : String(error) })
+  } finally {
+    reader.releaseLock()
+  }
+}
+
 export const downloadZip = api.raw(
   { method: 'GET', path: '/download.zip', expose: true, auth: true },
-  async (_req, res) => {
-    const root = resolveWorkspaceRoot()
+  async (req, res) => handleDownloadZip(req, res),
+)
 
-    let st: fs.Stats
-    try {
-      st = await fs.promises.stat(root)
-    } catch {
-      writeJson(res, 400, { error: `WORKSPACE_ROOT not found: ${root}` })
-      return
-    }
-
-    if (!st.isDirectory()) {
-      writeJson(res, 400, { error: `WORKSPACE_ROOT is not a directory: ${root}` })
-      return
-    }
-
-    const maxBytes = parseByteLimit(process.env.ZIP_MAX_BYTES, 250 * 1024 * 1024)
-    const maxFiles = parseByteLimit(process.env.ZIP_MAX_FILES, 20_000)
-
-    let files: FileEntry[]
-    try {
-      files = await collectFiles(root, { maxBytes, maxFiles })
-    } catch (error) {
-      writeJson(res, 413, { error: error instanceof Error ? error.message : String(error) })
-      return
-    }
-
-    const stream = createZipStream(files)
-    const reader = stream.getReader()
-
-    res.statusCode = 200
-    res.setHeader('content-type', 'application/zip')
-    res.setHeader('content-disposition', 'attachment; filename="workspace.zip"')
-    res.setHeader('cache-control', 'no-store')
-
-    try {
-      while (true) {
-        const { value, done } = await reader.read()
-        if (done) break
-        if (value) {
-          res.write(Buffer.from(value))
-        }
-      }
-      res.end()
-    } catch (error) {
-      writeJson(res, 500, { error: error instanceof Error ? error.message : String(error) })
-    } finally {
-      reader.releaseLock()
-    }
-  },
+export const downloadZipV1 = api.raw(
+  { method: 'GET', path: '/v1/download.zip', expose: true, auth: true },
+  async (req, res) => handleDownloadZip(req, res),
 )
 
 export const downloadSandboxZip = api.raw(
   { method: 'GET', path: '/sandbox/:id/download.zip', expose: true, auth: true },
-  async (req, res) => {
-    assertE2BConfigured()
+  async (req, res) => handleDownloadSandboxZip(req, res),
+)
 
-    const id = parsePathPart(req, 1)
-    if (!id) {
-      writeJson(res, 400, { error: 'sandbox id is required' })
-      return
-    }
-
-    const appDir = resolveSandboxAppDir()
-    const maxBytes = parseByteLimit(process.env.ZIP_MAX_BYTES, 250 * 1024 * 1024)
-    const maxFiles = parseByteLimit(process.env.ZIP_MAX_FILES, 20_000)
-    const sb = await connectSandboxWithRetry(id)
-
-    let files: SandboxZipFile[]
-    try {
-      files = await collectSandboxFiles(sb, appDir, { maxBytes, maxFiles })
-    } catch (error) {
-      writeJson(res, 413, { error: error instanceof Error ? error.message : String(error) })
-      return
-    }
-
-    const stream = createZipStreamFromSandbox(sb, files)
-    const reader = stream.getReader()
-
-    res.statusCode = 200
-    res.setHeader('content-type', 'application/zip')
-    res.setHeader('content-disposition', 'attachment; filename="workspace.zip"')
-    res.setHeader('cache-control', 'no-store')
-
-    try {
-      while (true) {
-        const { value, done } = await reader.read()
-        if (done) break
-        if (value) {
-          res.write(Buffer.from(value))
-        }
-      }
-      res.end()
-    } catch (error) {
-      writeJson(res, 500, { error: error instanceof Error ? error.message : String(error) })
-    } finally {
-      reader.releaseLock()
-    }
-  },
+export const downloadSandboxZipV1 = api.raw(
+  { method: 'GET', path: '/v1/sandbox/:id/download.zip', expose: true, auth: true },
+  async (req, res) => handleDownloadSandboxZip(req, res),
 )

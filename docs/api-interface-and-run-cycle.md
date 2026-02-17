@@ -9,8 +9,9 @@ This document explains how clients should interface with this backend, how a run
 | Method | Path | Purpose |
 |---|---|---|
 | `GET` | `/` | Basic service metadata and endpoint list |
-| `GET` | `/health` | Liveness check |
-| `GET` | `/capabilities` | Supported actions and environment hints |
+| `GET` | `/v1` | Versioned metadata and endpoint list |
+| `GET` | `/v1/health` | Liveness check |
+| `GET` | `/v1/capabilities` | Supported actions and environment hints |
 
 ### Auth-protected endpoints
 
@@ -21,24 +22,27 @@ All endpoints below require either:
 
 | Method | Path | Purpose |
 |---|---|---|
-| `POST` | `/runs` | Create run (SSE by default unless `stream=false`) |
-| `GET` | `/runs` | List runs |
-| `GET` | `/runs/:id` | Get run summary JSON |
-| `GET` | `/runs/:id/stream` | SSE stream for one run |
-| `GET` | `/runs/:id/events` | Get persisted events |
-| `GET` | `/runs/:id/artifacts` | Get run artifacts |
-| `POST` | `/runs/:id/cancel` | Cancel queued/running run |
-| `GET` | `/runs/:id/rollback` | Fetch rollback manifest |
-| `POST` | `/runs/:id/rollback` | Restore snapshot (`confirm=rollback`) |
-| `POST` | `/runs/:id/artifacts/register` | Register artifact metadata |
-| `POST` | `/exec` | Execute a command inside E2B sandbox |
-| `POST` | `/sandbox/create` | Create E2B sandbox |
-| `POST` | `/sandbox/info` | Fetch sandbox status/ports |
-| `POST` | `/sandbox/dev/start` | Start or reuse sandbox dev server |
-| `POST` | `/sandbox/dev/stop` | Stop sandbox dev process |
-| `GET` | `/download.zip` | Download host workspace zip |
-| `GET` | `/sandbox/:id/download.zip` | Download sandbox workspace zip |
-| `GET` | `/metrics` | Runs/jobs status counters (Prometheus-style) |
+| `POST` | `/v1/runs` | Create run (SSE by default unless `stream=false`) |
+| `GET` | `/v1/runs` | List runs |
+| `GET` | `/v1/runs/:id` | Get run summary JSON envelope |
+| `GET` | `/v1/runs/:id/stream` | SSE stream for one run |
+| `GET` | `/v1/runs/:id/events` | Get persisted events |
+| `GET` | `/v1/runs/:id/artifacts` | Get run artifacts |
+| `POST` | `/v1/runs/:id/cancel` | Cancel queued/running run |
+| `GET` | `/v1/runs/:id/rollback` | Fetch rollback manifest |
+| `POST` | `/v1/runs/:id/rollback` | Restore snapshot (`confirm=rollback`) |
+| `POST` | `/v1/runs/:id/artifacts/register` | Register artifact metadata |
+| `POST` | `/v1/exec` | Execute a command inside E2B sandbox |
+| `POST` | `/v1/sandbox/create` | Create E2B sandbox |
+| `POST` | `/v1/sandbox/info` | Fetch sandbox status/ports |
+| `POST` | `/v1/sandbox/dev/start` | Start or reuse sandbox dev server |
+| `POST` | `/v1/sandbox/dev/stop` | Stop sandbox dev process |
+| `GET` | `/v1/download.zip` | Download host workspace zip |
+| `GET` | `/v1/sandbox/:id/download.zip` | Download sandbox workspace zip |
+| `GET` | `/v1/metrics` | Runs/jobs status counters (JSON envelope) |
+| `GET` | `/v1/metrics/prometheus` | Runs/jobs counters (Prometheus-style text) |
+
+Legacy non-versioned paths still exist for backward compatibility.
 
 ### Internal endpoints
 
@@ -80,7 +84,7 @@ Run creation writes:
 
 ### Step A: Client creates run
 
-`POST /runs` body:
+`POST /v1/runs` body:
 
 ```json
 {
@@ -97,7 +101,8 @@ Behavior:
 
 - `stream` defaults to `true`.
 - If `stream=true`, the same POST response is an SSE stream.
-- If `stream=false`, response is immediate JSON: `{ id, status: "queued" }`.
+- If `stream=false`, response is immediate envelope:
+  `{"ok":true,"data":{"id":"...","status":"queued"},"meta":{"apiVersion":"v1","ts":"..."}}`.
 
 ### Step B: Worker picks queued job
 
@@ -159,7 +164,7 @@ On error:
   - emit `error`
   - mark job `failed`
 
-On explicit cancel (`POST /runs/:id/cancel`):
+On explicit cancel (`POST /v1/runs/:id/cancel`):
 
 - run set to `cancelled`
 - job set to `cancelled`
@@ -169,8 +174,8 @@ On explicit cancel (`POST /runs/:id/cancel`):
 
 SSE stream endpoint:
 
-- `POST /runs` when `stream=true`, or
-- `GET /runs/:id/stream`
+- `POST /v1/runs` when `stream=true`, or
+- `GET /v1/runs/:id/stream`
 
 Each event:
 
@@ -186,7 +191,7 @@ Other stream behavior:
 
 ## 6) Non-Run Execution Paths
 
-### Sandbox API (`/exec`, `/sandbox/*`)
+### Sandbox API (`/v1/exec`, `/v1/sandbox/*`)
 
 - Used for direct E2B operations outside the queued run lifecycle.
 - Requires `E2B_API_KEY` and `E2B_TEMPLATE`.
@@ -195,13 +200,15 @@ Other stream behavior:
 
 ### Download API
 
-- `/download.zip` exports host workspace.
-- `/sandbox/:id/download.zip` exports sandbox workspace.
+- `/v1/download.zip` exports host workspace.
+- `/v1/sandbox/:id/download.zip` exports sandbox workspace.
 - Sensitive files are intentionally excluded (`.env`, key/cert/private credential formats).
 
 ### Metrics API
 
-`GET /metrics` returns:
+`GET /v1/metrics` returns envelope data with runs/jobs counters.
+
+`GET /v1/metrics/prometheus` returns:
 
 - `runs_status{status="..."} <count>`
 - `jobs_status{status="..."} <count>`
@@ -215,11 +222,11 @@ Other stream behavior:
 - protected endpoints return `401`.
 
 3. Streaming expectation mismatch:
-- `GET /runs/:id` returns summary JSON, not SSE.
-- SSE is `GET /runs/:id/stream` (or `POST /runs` with `stream=true`).
+- `GET /v1/runs/:id` returns summary JSON, not SSE.
+- SSE is `GET /v1/runs/:id/stream` (or `POST /v1/runs` with `stream=true`).
 
 4. E2B not configured:
-- `/exec` and `/sandbox/*` fail if `E2B_API_KEY` or `E2B_TEMPLATE` missing.
+- `/v1/exec` and `/v1/sandbox/*` fail if `E2B_API_KEY` or `E2B_TEMPLATE` missing.
 
 5. Sandbox lifecycle mismatch:
 - if a sandbox is paused/evicted, follow-up calls can fail with internal errors such as `Paused sandbox <id> not found`.
@@ -231,8 +238,10 @@ Other stream behavior:
 7. Retry queue behavior misunderstood:
 - failed attempts may stay non-terminal for backoff period; inspect `events` and `jobs` state.
 
-8. Documentation drift:
-- root endpoint currently lists `/v1/responses`, but no corresponding endpoint exists in this codebase.
+8. Mixed response shapes:
+- v1 JSON endpoints return `{ok,data,meta}` envelopes.
+- Legacy endpoints return raw JSON objects/arrays.
+- Clients should standardize on `/v1/*` to avoid ambiguity.
 
 ## 8) Minimal Smoke Test (Recommended)
 
@@ -243,35 +252,53 @@ Assume:
 
 ```bash
 # 1) Public checks
-curl -s "$API/health"
-curl -s "$API/capabilities" | jq '.name, .actions[0]'
+curl -s "$API/v1/health" | jq '.data.status,.meta.apiVersion'
+curl -s "$API/v1/capabilities" | jq '.data.name,.data.actions[0]'
 
 # 2) Auth check (should fail without key)
-curl -s -o /dev/null -w "%{http_code}\n" "$API/runs"
+curl -s -o /dev/null -w "%{http_code}\n" "$API/v1/runs"
 
 # 3) Create run without SSE (polling mode)
-RUN_ID=$(curl -s -X POST "$API/runs" \
+RUN_ID=$(curl -s -X POST "$API/v1/runs" \
   -H "X-Agent-Api-Key: $KEY" \
   -H "Content-Type: application/json" \
-  -d '{"prompt":"Create a tiny change and summarize it.","stream":false}' | jq -r '.id')
+  -d '{"prompt":"Create a tiny change and summarize it.","stream":false}' | jq -r '.data.id')
 echo "$RUN_ID"
 
 # 4) Poll status/events
-curl -s -H "X-Agent-Api-Key: $KEY" "$API/runs/$RUN_ID" | jq '.status,.provider,.model'
-curl -s -H "X-Agent-Api-Key: $KEY" "$API/runs/$RUN_ID/events" | jq '.[-5:]'
+curl -s -H "X-Agent-Api-Key: $KEY" "$API/v1/runs/$RUN_ID" | jq '.data.status,.data.provider,.data.model'
+curl -s -H "X-Agent-Api-Key: $KEY" "$API/v1/runs/$RUN_ID/events" | jq '.data[-5:]'
 
 # 5) Optional SSE stream
-curl -N -H "X-Agent-Api-Key: $KEY" "$API/runs/$RUN_ID/stream"
+curl -N -H "X-Agent-Api-Key: $KEY" "$API/v1/runs/$RUN_ID/stream"
 
 # 6) E2B timeout probe (should return quickly, not hang)
-SID=$(curl -s -X POST "$API/sandbox/create" -H "X-Agent-Api-Key: $KEY" -H "Content-Type: application/json" -d '{}' | jq -r '.sandboxId')
-curl -s -X POST "$API/exec" \
+SID=$(curl -s -X POST "$API/v1/sandbox/create" -H "X-Agent-Api-Key: $KEY" -H "Content-Type: application/json" -d '{}' | jq -r '.data.sandboxId')
+curl -s -X POST "$API/v1/exec" \
   -H "X-Agent-Api-Key: $KEY" \
   -H "Content-Type: application/json" \
-  -d "{\"sandboxId\":\"$SID\",\"cmd\":\"sleep 120\",\"timeoutMs\":5000}" | jq .
+  -d "{\"sandboxId\":\"$SID\",\"cmd\":\"sleep 120\",\"timeoutMs\":5000}" | jq '.data'
 ```
 
 Healthy run expectations:
 
-- terminal status in `runs/:id` is `completed`
+- terminal status in `v1/runs/:id` is `completed`
 - `events` contains `phase_started`, `plan_ready`, `phase_transition`, `phase_completed`, `done`
+
+## 9) CLI Checks
+
+Project-level verification commands:
+
+```bash
+# smoke (health/capabilities + create/poll one run)
+bun run api:check:smoke
+
+# deep (includes event/artifact assertions)
+bun run api:check:deep
+```
+
+Environment variables for deployed checks:
+
+- `API_BASE=https://<env>.encr.app`
+- `AGENT_API_KEY=<key>`
+- optional: `CHECK_WORKSPACE_BACKEND=e2b|host`, `CHECK_PROVIDER`, `CHECK_MODEL`
