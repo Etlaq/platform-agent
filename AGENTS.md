@@ -71,13 +71,18 @@ agent/       # runtime orchestration (plan/build phases)
 
 ## Notes (Append Only)
 <!-- AGENTS_NOTES_START -->
-- 2026-02-12T14:48:41.283Z: run_error: Workspace is not a Next.js project (missing next dependency).
-- 2026-02-13T13:08:50.988Z: run_error: 401 {"type":"error","error":{"type":"authentication_error","message":"invalid x-api-key"},"request_id":"req_011CY67zdNuVKF5f6sRvH3WL"} Troubleshooting URL: https://docs.langchain.com/oss/javascript/langchain/errors/MODEL_AUTHENTICATION/
-- 2026-02-13T13:08:53.496Z: run_error: 401 {"type":"error","error":{"type":"authentication_error","message":"invalid x-api-key"},"request_id":"req_011CY67zp8ZPPGWono9fAzxm"} Troubleshooting URL: https://docs.langchain.com/oss/javascript/langchain/errors/MODEL_AUTHENTICATION/
-- 2026-02-13T13:08:58.482Z: run_error: 401 {"type":"error","error":{"type":"authentication_error","message":"invalid x-api-key"},"request_id":"req_011CY681BRyPeVzSTqDYWG1o"} Troubleshooting URL: https://docs.langchain.com/oss/javascript/langchain/errors/MODEL_AUTHENTICATION/
-- 2026-02-13T13:14:11.110Z: run_error: Workspace is not a Next.js project (missing next dependency).
-- 2026-02-13T13:29:49.332Z: tool=tool | tool_error: Workspace is not a Next.js project (missing next dependency). | input={"action":"add_dependencies","deps":[{"name":"next","version":"^16.0.0","dev":false},{"name":"react","version":"^19.0.0","dev":false},{"name":"react-dom","version":"^19.0.0","dev":false},{"name":"tail
-- 2026-02-13T13:44:48.639Z: run_error: Workspace is not a Next.js project (missing next dependency).
-- 2026-02-17T21:20:00.000Z: docs_update: AGENTS.md updated to backend-focused Encore architecture with canonical /v1 API guidance.
-- 2026-02-17T22:45:00.000Z: rollback_update: rollback actions now use git commit history selection (`rollback_list_commits` + commit-based `rollback_run`).
+- 2026-02-12T14:48:41.283Z | run_error/workspace_validation | Workspace rejected as non-Next.js project (`next` dependency missing).
+- 2026-02-13T13:08:50.988Z | run_error/model_auth | Provider returned 401 `invalid x-api-key` (request_id: `req_011CY67zdNuVKF5f6sRvH3WL`).
+- 2026-02-13T13:08:53.496Z | run_error/model_auth | Provider returned 401 `invalid x-api-key` (request_id: `req_011CY67zp8ZPPGWono9fAzxm`).
+- 2026-02-13T13:08:58.482Z | run_error/model_auth | Provider returned 401 `invalid x-api-key` (request_id: `req_011CY681BRyPeVzSTqDYWG1o`).
+- 2026-02-13T13:14:11.110Z | run_error/workspace_validation | Workspace rejected as non-Next.js project (`next` dependency missing).
+- 2026-02-13T13:29:49.332Z | tool_error/dependency_bootstrap | Dependency add tool called while workspace validation still failing (`next` missing).
+- 2026-02-13T13:44:48.639Z | run_error/workspace_validation | Workspace rejected as non-Next.js project (`next` dependency missing).
+- 2026-02-17T21:20:00.000Z | docs_update/architecture | AGENTS.md rewritten for backend-first Encore architecture and canonical `/v1/*` guidance.
+- 2026-02-17T22:20:48.000Z | deploy_lesson/auth | Direct Encore rollout API returned 401; local login state is not always enough for rollout API calls.
+- 2026-02-17T22:20:48.000Z | contract_lesson/download_zip | `/v1/runs/:id/download.zip` must return workspace application files, not metadata pack (`run.json`, `events.json`, `artifacts.json`).
+- 2026-02-17T22:20:48.000Z | run_debug/provider_config | Deep runs may stall with repeated empty token events when provider key/model config is invalid.
+- 2026-02-17T22:45:00.000Z | rollback_update/git_based | Rollback flow now uses commit list selection plus forward restore commit (`rollback_list_commits` + `rollback_run`), no history rewrite.
+- 2026-02-17T22:25:42.000Z | deploy_lesson/token_format | `~/.config/encore/.auth_token` is JSON; manual rollout API calls must use `.access_token` value, not raw file contents.
+- 2026-02-17T22:25:42.000Z | rollout_verification/staging | Rollout `roll_1t5n0fsb0mgc1ufujj60` succeeded and `/v1/runs/:id/download.zip` on staging now returns workspace app files (contains `package.json`, `runs/api.ts`; no `run.json/events.json/artifacts.json`).
 <!-- AGENTS_NOTES_END -->
