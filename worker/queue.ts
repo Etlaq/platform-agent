@@ -72,9 +72,20 @@ function parsePositiveInt(name: string, fallback: number, opts?: { min?: number;
 }
 
 const MAX_BACKOFF_SECONDS = parsePositiveInt('WORKER_MAX_BACKOFF', 30, { min: 1, max: 600 })
+const RUN_ATTEMPT_TIMEOUT_MS = parsePositiveInt('RUN_ATTEMPT_TIMEOUT_MS', 20 * 60_000, {
+  min: 30_000,
+  max: 24 * 60 * 60_000,
+})
 
 function sleep(ms: number) {
   return new Promise<void>((resolve) => setTimeout(resolve, ms))
+}
+
+class RunAttemptTimedOutError extends Error {
+  constructor(timeoutMs: number) {
+    super(`run attempt timed out after ${timeoutMs}ms`)
+    this.name = 'RunAttemptTimedOutError'
+  }
 }
 
 export const runRequestedTopic = new Topic<RunRequestedEvent>('run-requested', {
@@ -151,6 +162,7 @@ async function processRun(runId: string) {
 
     const abortController = new AbortController()
     let cancelWatch: ReturnType<typeof setInterval> | null = null
+    let attemptTimeoutHandle: ReturnType<typeof setTimeout> | null = null
     let cancelCheckInFlight = false
     let eventChain = Promise.resolve()
 
@@ -196,6 +208,13 @@ async function processRun(runId: string) {
         )
       })
 
+      const attemptTimeoutPromise = new Promise<never>((_resolve, reject) => {
+        attemptTimeoutHandle = setTimeout(() => {
+          reject(new RunAttemptTimedOutError(RUN_ATTEMPT_TIMEOUT_MS))
+          abortController.abort()
+        }, RUN_ATTEMPT_TIMEOUT_MS)
+      })
+
       const result = await Promise.race([
         runAgent({
           prompt: latestRun.prompt,
@@ -227,7 +246,12 @@ async function processRun(runId: string) {
           },
         }),
         abortPromise,
+        attemptTimeoutPromise,
       ])
+      if (attemptTimeoutHandle) {
+        clearTimeout(attemptTimeoutHandle)
+        attemptTimeoutHandle = null
+      }
 
       await eventChain
 
@@ -293,12 +317,18 @@ async function processRun(runId: string) {
 
       return
     } catch (error) {
+      if (attemptTimeoutHandle) {
+        clearTimeout(attemptTimeoutHandle)
+        attemptTimeoutHandle = null
+      }
       const message = error instanceof Error ? error.message : String(error)
       await eventChain
 
       const runAfterError = await getRun(runId)
       const cancelled =
-        abortController.signal.aborted || runAfterError?.status === 'cancelled' || isRunAbortedError(error)
+        !(
+          error instanceof RunAttemptTimedOutError
+        ) && (abortController.signal.aborted || runAfterError?.status === 'cancelled' || isRunAbortedError(error))
 
       if (cancelled) {
         await cancelJobByRunId(runId)
@@ -338,6 +368,7 @@ async function processRun(runId: string) {
       continue
     } finally {
       if (cancelWatch) clearInterval(cancelWatch)
+      if (attemptTimeoutHandle) clearTimeout(attemptTimeoutHandle)
     }
   }
 }
