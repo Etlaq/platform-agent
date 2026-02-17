@@ -28,10 +28,16 @@ Configure these in GitHub repository settings -> Secrets and variables -> Action
 
 | Secret | Example | Notes |
 |---|---|---|
-| `ENCORE_CLIENT_ID` | `...` | OAuth client id from Encore |
-| `ENCORE_CLIENT_SECRET` | `...` | OAuth client secret from Encore |
 | `ENCORE_APP_ID` | `platform-agent-3p2i` | Must match `encore.app` id |
 | `ENCORE_ENV_NAME` | `staging` | Environment to deploy |
+| `ENCORE_ACCESS_TOKEN` | `...` | Optional direct Encore bearer token; easiest to start, must be rotated |
+| `ENCORE_CLIENT_ID` | `...` | OAuth client id from Encore (recommended long-term) |
+| `ENCORE_CLIENT_SECRET` | `...` | OAuth client secret from Encore (recommended long-term) |
+
+Authentication rule used by workflow:
+
+- Use `ENCORE_ACCESS_TOKEN` if set.
+- Otherwise use `ENCORE_CLIENT_ID` + `ENCORE_CLIENT_SECRET`.
 
 ## Required Encore secret
 
@@ -46,12 +52,14 @@ Without `AgentApiKey`, Encore deploy fails during infrastructure validation with
 
 ## One-time setup checklist
 
-1. Create an Encore OAuth client with permission to trigger rollouts for this app.
-2. Add the 4 GitHub secrets listed above.
-3. Set `AgentApiKey` in the target Encore environment (for example `staging`).
-4. Push to `master`.
-5. Confirm GitHub Action `CI/CD` succeeds.
-6. Confirm rollout appears in Encore environment activity.
+1. Add `ENCORE_APP_ID` and `ENCORE_ENV_NAME`.
+2. Add auth secret(s):
+3. Option A: set `ENCORE_ACCESS_TOKEN` for immediate rollout capability.
+4. Option B: create an Encore OAuth client and set `ENCORE_CLIENT_ID` + `ENCORE_CLIENT_SECRET`.
+5. Set `AgentApiKey` in the target Encore environment (for example `staging`).
+6. Push to `master`.
+7. Confirm GitHub Action `CI/CD` succeeds.
+8. Confirm rollout appears in Encore environment activity.
 
 ## Post-deploy verification
 

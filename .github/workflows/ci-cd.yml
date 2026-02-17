@@ -53,29 +53,43 @@ jobs:
 
       - name: Validate required secrets
         env:
+          ENCORE_ACCESS_TOKEN: ${{ secrets.ENCORE_ACCESS_TOKEN }}
           ENCORE_CLIENT_ID: ${{ secrets.ENCORE_CLIENT_ID }}
           ENCORE_CLIENT_SECRET: ${{ secrets.ENCORE_CLIENT_SECRET }}
           ENCORE_APP_ID: ${{ secrets.ENCORE_APP_ID }}
           ENCORE_ENV_NAME: ${{ secrets.ENCORE_ENV_NAME }}
         run: |
           missing=0
-          for key in ENCORE_CLIENT_ID ENCORE_CLIENT_SECRET ENCORE_APP_ID ENCORE_ENV_NAME; do
+          for key in ENCORE_APP_ID ENCORE_ENV_NAME; do
             if [ -z "${!key}" ]; then
               echo "::error::Missing required GitHub secret: ${key}"
               missing=1
             fi
           done
 
+          if [ -z "${ENCORE_ACCESS_TOKEN}" ] && { [ -z "${ENCORE_CLIENT_ID}" ] || [ -z "${ENCORE_CLIENT_SECRET}" ]; }; then
+            echo "::error::Set ENCORE_ACCESS_TOKEN OR both ENCORE_CLIENT_ID + ENCORE_CLIENT_SECRET."
+            missing=1
+          fi
+
           if [ "$missing" -ne 0 ]; then
             exit 1
           fi
 
-      - name: Request Encore OAuth token
-        id: oauth
+      - name: Resolve Encore API token
+        id: auth
         env:
+          ENCORE_ACCESS_TOKEN: ${{ secrets.ENCORE_ACCESS_TOKEN }}
           ENCORE_CLIENT_ID: ${{ secrets.ENCORE_CLIENT_ID }}
           ENCORE_CLIENT_SECRET: ${{ secrets.ENCORE_CLIENT_SECRET }}
         run: |
+          if [ -n "${ENCORE_ACCESS_TOKEN}" ]; then
+            echo "::add-mask::$ENCORE_ACCESS_TOKEN"
+            echo "access_token=${ENCORE_ACCESS_TOKEN}" >> "$GITHUB_OUTPUT"
+            echo "auth_mode=access_token_secret" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+
           token_response="$(curl -fsSL -X POST https://api.encore.cloud/api/oauth/token \
             -d "client_id=${ENCORE_CLIENT_ID}" \
             -d "client_secret=${ENCORE_CLIENT_SECRET}" \
@@ -84,13 +98,14 @@ jobs:
           access_token="$(printf '%s' "$token_response" | jq -er '.access_token')"
           echo "::add-mask::$access_token"
           echo "access_token=$access_token" >> "$GITHUB_OUTPUT"
+          echo "auth_mode=oauth_client" >> "$GITHUB_OUTPUT"
 
       - name: Trigger Encore rollout for commit
         id: rollout
         env:
           ENCORE_APP_ID: ${{ secrets.ENCORE_APP_ID }}
           ENCORE_ENV_NAME: ${{ secrets.ENCORE_ENV_NAME }}
-          ENCORE_ACCESS_TOKEN: ${{ steps.oauth.outputs.access_token }}
+          ENCORE_ACCESS_TOKEN: ${{ steps.auth.outputs.access_token }}
           COMMIT_SHA: ${{ github.sha }}
         run: |
           payload="$(jq -cn --arg sha "$COMMIT_SHA" '{sha:$sha}')"
@@ -108,7 +123,7 @@ jobs:
       - name: Wait for rollout completion
         env:
           ENCORE_APP_ID: ${{ secrets.ENCORE_APP_ID }}
-          ENCORE_ACCESS_TOKEN: ${{ steps.oauth.outputs.access_token }}
+          ENCORE_ACCESS_TOKEN: ${{ steps.auth.outputs.access_token }}
           ROLLOUT_ID: ${{ steps.rollout.outputs.rollout_id }}
         run: |
           for attempt in $(seq 1 60); do

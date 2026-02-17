@@ -167,10 +167,13 @@ Required GitHub repository secrets:
 
 | Secret | Description |
 |---|---|
-| `ENCORE_CLIENT_ID` | OAuth client id for Encore API access |
-| `ENCORE_CLIENT_SECRET` | OAuth client secret for Encore API access |
 | `ENCORE_APP_ID` | Encore app id (for this repo: `platform-agent-3p2i`) |
 | `ENCORE_ENV_NAME` | Target environment name (for example `staging`) |
+| `ENCORE_ACCESS_TOKEN` | Optional direct Encore API bearer token (fastest setup; rotate when expired) |
+| `ENCORE_CLIENT_ID` | OAuth client id for Encore API access (recommended long-term) |
+| `ENCORE_CLIENT_SECRET` | OAuth client secret for Encore API access (recommended long-term) |
+
+Auth requirement: set `ENCORE_ACCESS_TOKEN` **or** both `ENCORE_CLIENT_ID` + `ENCORE_CLIENT_SECRET`.
 
 Required Encore environment secret:
 
