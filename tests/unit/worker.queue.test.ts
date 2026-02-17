@@ -101,6 +101,10 @@ vi.mock('encore.dev/pubsub', () => {
   return { Topic, Subscription }
 })
 
+vi.mock('encore.dev/config', () => ({
+  secret: () => () => '',
+}))
+
 vi.mock('../../data/db', () => ({
   cancelJobByRunId: cancelJobByRunIdMock,
   claimRunForExecution: claimRunForExecutionMock,

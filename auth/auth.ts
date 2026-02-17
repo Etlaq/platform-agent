@@ -11,15 +11,15 @@ function normalizeOptionalSecret(secretValue: string | null | undefined) {
 }
 
 export function resolveAgentApiKey() {
-  const fromEnv = normalizeOptionalSecret(process.env.AGENT_API_KEY)
-  if (fromEnv) return fromEnv
-
   try {
     const fromSecret = normalizeOptionalSecret(agentApiKeySecret())
     if (fromSecret) return fromSecret
   } catch {
     // Ignore secret lookup errors and return a clear API error below.
   }
+
+  const fromEnv = normalizeOptionalSecret(process.env.AGENT_API_KEY)
+  if (fromEnv) return fromEnv
 
   throw APIError.invalidArgument('AGENT_API_KEY must be set to use control-plane endpoints.')
 }
