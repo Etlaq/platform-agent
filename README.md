@@ -37,7 +37,7 @@ Detailed request/worker lifecycle and troubleshooting are documented in `docs/ap
 | GET | `/v1/runs/:id` | Run summary (JSON envelope) |
 | GET | `/v1/runs/:id/stream` | SSE event stream for a run |
 | POST | `/v1/runs/:id/cancel` | Cancel a running job |
-| GET | `/v1/runs/:id/download.zip` | Download run-scoped package (summary/events/artifacts) |
+| GET | `/v1/runs/:id/download.zip` | Download workspace project zip (application files) |
 
 Older workflow/sandbox/metrics endpoints are now internal-only and no longer part of the public client contract.
 

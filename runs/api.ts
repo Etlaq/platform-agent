@@ -1,16 +1,18 @@
 import { api, APIError } from 'encore.dev/api'
 import { randomUUID } from 'node:crypto'
 import { type IncomingMessage, type ServerResponse } from 'node:http'
+import fs from 'node:fs'
 import { apiSuccess, type ApiSuccess } from '../common/apiContract'
 import { createStoredZipStream } from '../common/zip'
 import { parseJsonBody, parsePathPartAfter, writeApiError, writeApiSuccess } from '../common/http'
+import { parseByteLimit, resolveWorkspaceRoot, toPosixRelPath } from '../common/workspace'
+import { isDeniedEnvFile, isDeniedSensitiveFile } from '../common/fileSensitivity'
 import {
   cancelJobByRunId,
   cancelRun,
   createQueuedRun,
   getRun,
   insertEventWithNextSeq,
-  listArtifacts,
   listEventsAfter,
 } from '../data/db'
 import { enqueueRun } from '../worker/queue'
@@ -79,11 +81,28 @@ interface CancelRunResponse {
   cancelled: boolean
 }
 
-type InMemoryZipFile = {
+type WorkspaceZipEntry = {
+  absPath: string
   relPath: string
+  size: number
   mtimeMs: number
-  bytes: Uint8Array
 }
+
+const DEFAULT_EXCLUDE_DIRS = new Set([
+  '.aws',
+  '.ssh',
+  '.gnupg',
+  '.kube',
+  'node_modules',
+  '.next',
+  'dist',
+  'build',
+  'coverage',
+  '.agents',
+  '.turbo',
+  '.cache',
+  'tmp',
+])
 
 function writeSSE(
   res: ServerResponse,
@@ -117,6 +136,82 @@ function parseLastEventId(req: IncomingMessage) {
   const n = value ? Number(value) : NaN
   if (!Number.isFinite(n) || n <= 0) return 0
   return Math.trunc(n)
+}
+
+async function collectWorkspaceFiles(rootDir: string, opts: { maxBytes: number; maxFiles: number }) {
+  const files: WorkspaceZipEntry[] = []
+  let total = 0
+
+  const walk = async (absDir: string, relDir: string) => {
+    const entries = await fs.promises.readdir(absDir, { withFileTypes: true })
+    for (const ent of entries) {
+      const name = ent.name
+      if (name === '.' || name === '..') continue
+
+      if (DEFAULT_EXCLUDE_DIRS.has(name) && ent.isDirectory()) {
+        continue
+      }
+
+      if (isDeniedEnvFile(name) || isDeniedSensitiveFile(name)) {
+        continue
+      }
+
+      const absPath = `${absDir}/${name}`
+      const relPath = relDir ? `${relDir}/${name}` : name
+
+      let st: fs.Stats
+      try {
+        st = await fs.promises.lstat(absPath)
+      } catch {
+        continue
+      }
+
+      if (st.isSymbolicLink()) continue
+
+      if (st.isDirectory()) {
+        await walk(absPath, relPath)
+        continue
+      }
+
+      if (!st.isFile()) continue
+
+      const size = st.size
+      if (size > 0xffffffff) {
+        throw new Error(`File too large for zip: ${relPath}`)
+      }
+
+      total += size
+      if (total > opts.maxBytes) {
+        throw new Error('Zip exceeds ZIP_MAX_BYTES limit.')
+      }
+
+      files.push({
+        absPath,
+        relPath: toPosixRelPath(relPath),
+        size,
+        mtimeMs: st.mtimeMs,
+      })
+
+      if (files.length > opts.maxFiles) {
+        throw new Error('Zip exceeds max file count limit.')
+      }
+    }
+  }
+
+  await walk(rootDir, '')
+  files.sort((a, b) => a.relPath.localeCompare(b.relPath))
+  return files
+}
+
+async function* readFsFileChunks(absPath: string) {
+  const rs = fs.createReadStream(absPath)
+  try {
+    for await (const chunk of rs as AsyncIterable<Uint8Array | ArrayBufferView | ArrayBuffer>) {
+      yield chunk
+    }
+  } finally {
+    rs.close?.()
+  }
 }
 
 function writeRouteError(
@@ -357,56 +452,6 @@ async function cancelRunById(id: string): Promise<CancelRunResponse> {
   return { id, status: 'cancelled', cancelled: true }
 }
 
-async function* readSingleChunk(bytes: Uint8Array) {
-  yield bytes
-}
-
-function buildRunPackageFiles(input: {
-  summary: RunSummaryResponse
-  events: Array<{ id: number; seq: number; type: string; payload: unknown; ts: string }>
-  artifacts: Array<{ id: number; name: string; path: string; mime: string | null; size: number | null; createdAt: string }>
-}): InMemoryZipFile[] {
-  const now = Date.now()
-  const encoder = new TextEncoder()
-
-  const files: InMemoryZipFile[] = [
-    {
-      relPath: 'run.json',
-      mtimeMs: now,
-      bytes: encoder.encode(`${JSON.stringify(input.summary, null, 2)}\n`),
-    },
-    {
-      relPath: 'events.json',
-      mtimeMs: now,
-      bytes: encoder.encode(`${JSON.stringify(input.events, null, 2)}\n`),
-    },
-    {
-      relPath: 'artifacts.json',
-      mtimeMs: now,
-      bytes: encoder.encode(`${JSON.stringify(input.artifacts, null, 2)}\n`),
-    },
-  ]
-
-  if (input.summary.output) {
-    files.push({
-      relPath: 'output.txt',
-      mtimeMs: now,
-      bytes: encoder.encode(input.summary.output),
-    })
-  }
-
-  if (input.summary.error) {
-    files.push({
-      relPath: 'error.txt',
-      mtimeMs: now,
-      bytes: encoder.encode(input.summary.error),
-    })
-  }
-
-  files.sort((a, b) => a.relPath.localeCompare(b.relPath))
-  return files
-}
-
 async function handleRunDownloadZip(req: IncomingMessage, res: ServerResponse) {
   const id = parseRunId(req)
   if (!id) {
@@ -420,23 +465,37 @@ async function handleRunDownloadZip(req: IncomingMessage, res: ServerResponse) {
     return
   }
 
-  const [events, artifacts] = await Promise.all([
-    listEventsAfter(id, 0),
-    listArtifacts(id),
-  ])
+  const root = resolveWorkspaceRoot()
 
-  const files = buildRunPackageFiles({
-    summary: toSummary(run),
-    events,
-    artifacts,
-  })
+  let rootStat: fs.Stats
+  try {
+    rootStat = await fs.promises.stat(root)
+  } catch {
+    writeRouteError(res, 400, `WORKSPACE_ROOT not found: ${root}`, 'invalid_argument')
+    return
+  }
+  if (!rootStat.isDirectory()) {
+    writeRouteError(res, 400, `WORKSPACE_ROOT is not a directory: ${root}`, 'invalid_argument')
+    return
+  }
 
-  const stream = createStoredZipStream(files, (file) => readSingleChunk(file.bytes))
+  const maxBytes = parseByteLimit(process.env.ZIP_MAX_BYTES, 250 * 1024 * 1024)
+  const maxFiles = parseByteLimit(process.env.ZIP_MAX_FILES, 20_000)
+
+  let files: WorkspaceZipEntry[]
+  try {
+    files = await collectWorkspaceFiles(root, { maxBytes, maxFiles })
+  } catch (error) {
+    writeRouteError(res, 413, error instanceof Error ? error.message : String(error), 'payload_too_large')
+    return
+  }
+
+  const stream = createStoredZipStream(files, (file) => readFsFileChunks(file.absPath))
   const reader = stream.getReader()
 
   res.statusCode = 200
   res.setHeader('content-type', 'application/zip')
-  res.setHeader('content-disposition', `attachment; filename="run-${id}.zip"`)
+  res.setHeader('content-disposition', `attachment; filename="run-${id}-workspace.zip"`)
   res.setHeader('cache-control', 'no-store')
 
   try {

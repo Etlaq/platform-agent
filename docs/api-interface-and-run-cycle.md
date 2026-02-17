@@ -27,7 +27,7 @@ Auth header:
 | `GET` | `/v1/runs/:id` | Run summary |
 | `GET` | `/v1/runs/:id/stream` | SSE stream with replay support |
 | `POST` | `/v1/runs/:id/cancel` | Cancel queued/running run |
-| `GET` | `/v1/runs/:id/download.zip` | Download run-scoped package |
+| `GET` | `/v1/runs/:id/download.zip` | Download workspace project zip |
 
 All other previous workflow/sandbox/metrics/download endpoints are internal-only.
 
@@ -102,13 +102,13 @@ This means client connection state does not control run execution state.
 
 ## 7) Run Download Package
 
-`GET /v1/runs/:id/download.zip` contains run-scoped artifacts:
+`GET /v1/runs/:id/download.zip` returns the workspace application zip (project files), not metadata json snapshots.
 
-- `run.json` (summary)
-- `events.json` (event log)
-- `artifacts.json` (artifact metadata)
-- `output.txt` when available
-- `error.txt` when available
+Behavior:
+
+- includes workspace source and config files
+- excludes sensitive files and env secrets (for example `.env`)
+- excludes large generated/vendor directories (`node_modules`, `.next`, etc.)
 
 ## 8) Operational Notes
 
