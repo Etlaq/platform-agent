@@ -1,4 +1,5 @@
 import { api, APIError } from 'encore.dev/api'
+import { secret } from 'encore.dev/config'
 import { randomUUID } from 'node:crypto'
 import { type IncomingMessage, type ServerResponse } from 'node:http'
 import fs from 'node:fs'
@@ -110,6 +111,37 @@ const DEFAULT_EXCLUDE_DIRS = new Set([
   'tmp',
 ])
 
+const e2bApiKeySecrets = [secret('E2B_API_KEY'), secret('E2BApiKey')]
+const e2bTemplateSecrets = [secret('E2B_TEMPLATE'), secret('E2BTemplate')]
+
+function normalizeSecret(value: string | null | undefined) {
+  if (typeof value !== 'string') return null
+  const trimmed = value.trim()
+  return trimmed.length > 0 ? trimmed : null
+}
+
+function setFromSecretsIfMissing(envKey: string, readSecrets: Array<() => string>) {
+  const current = normalizeSecret(process.env[envKey])
+  if (current) return
+
+  for (const readSecret of readSecrets) {
+    try {
+      const secretValue = normalizeSecret(readSecret())
+      if (secretValue) {
+        process.env[envKey] = secretValue
+        return
+      }
+    } catch {
+      // Runtime validation will surface errors when required values are absent.
+    }
+  }
+}
+
+function hydrateRunsEnvFromSecrets() {
+  setFromSecretsIfMissing('E2B_API_KEY', e2bApiKeySecrets)
+  setFromSecretsIfMissing('E2B_TEMPLATE', e2bTemplateSecrets)
+}
+
 function writeSSE(
   res: ServerResponse,
   event: { id: string; event: string; data: string },
@@ -144,6 +176,8 @@ function parseWorkspaceBackend(raw: unknown): 'host' | 'e2b' | null {
 }
 
 function resolveDefaultWorkspaceBackend(): 'host' | 'e2b' {
+  hydrateRunsEnvFromSecrets()
+
   const envChoice =
     parseWorkspaceBackend(process.env.AGENT_WORKSPACE_BACKEND) ??
     parseWorkspaceBackend(process.env.WORKSPACE_BACKEND)
@@ -569,6 +603,8 @@ async function writeHostWorkspaceZip(runId: string, res: ServerResponse) {
 }
 
 async function handleRunDownloadZip(req: IncomingMessage, res: ServerResponse) {
+  hydrateRunsEnvFromSecrets()
+
   const id = parseRunId(req)
   if (!id) {
     writeRouteError(res, 400, 'run id is required', 'invalid_argument')
