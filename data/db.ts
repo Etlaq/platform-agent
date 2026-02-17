@@ -363,6 +363,7 @@ export async function createQueuedRun(params: {
         0
       )
       ON CONFLICT (project_id, idempotency_key)
+      WHERE idempotency_key IS NOT NULL
       DO NOTHING
       RETURNING *
     `
