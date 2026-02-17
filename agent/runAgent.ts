@@ -80,6 +80,13 @@ export function isRunAbortedError(err: unknown) {
   return maybe.name === 'AbortError'
 }
 
+function resolvePhaseTimeoutMs(envName: string, fallbackMs: number) {
+  const raw = process.env[envName]
+  const n = raw ? Number(raw) : NaN
+  if (!Number.isFinite(n)) return fallbackMs
+  return Math.max(30_000, Math.min(2 * 60 * 60_000, Math.trunc(n)))
+}
+
 function buildUserMessage(prompt: string, input?: unknown): string {
   if (input === undefined) return prompt
   return `${prompt}\n\nAdditional input:\n${JSON.stringify(input, null, 2)}`
@@ -396,6 +403,8 @@ export async function runAgent(params: AgentRunInput): Promise<{
   ensureDir(rollbackRoot)
 
   const runId = params.runId ?? crypto.randomUUID()
+  const planPhaseTimeoutMs = resolvePhaseTimeoutMs('AGENT_PLAN_PHASE_TIMEOUT_MS', 5 * 60_000)
+  const buildPhaseTimeoutMs = resolvePhaseTimeoutMs('AGENT_BUILD_PHASE_TIMEOUT_MS', 20 * 60_000)
   const rollback =
     workspaceMode === 'host'
       ? new RollbackManager({
@@ -743,22 +752,50 @@ export async function runAgent(params: AgentRunInput): Promise<{
 
   const invokeWithSchemaRetry = async (messages: unknown[], phase: 'plan' | 'build') => {
     let nextMessages = messages
+    const phaseTimeoutMs = phase === 'plan' ? planPhaseTimeoutMs : buildPhaseTimeoutMs
     for (let attempt = 0; attempt <= toolSchemaRetries; attempt++) {
       throwIfAborted(params.signal)
       try {
+        const invokeAbort = new AbortController()
+        let parentAbortListener: (() => void) | null = null
+        if (params.signal) {
+          if (params.signal.aborted) {
+            invokeAbort.abort()
+          } else {
+            parentAbortListener = () => invokeAbort.abort()
+            params.signal.addEventListener('abort', parentAbortListener, { once: true })
+          }
+        }
+
+        let timeoutHandle: ReturnType<typeof setTimeout> | null = null
+        const timeoutPromise = new Promise<never>((_resolve, reject) => {
+          timeoutHandle = setTimeout(() => {
+            invokeAbort.abort()
+            reject(new Error(`agent ${phase} phase timed out after ${phaseTimeoutMs}ms`))
+          }, phaseTimeoutMs)
+        })
+
         const invokeConfig: RunnableConfig = {
           callbacks,
           runName: `deep-agent-run-${phase}`,
           runId,
           tags: [...invokeTags, `phase:${phase}`],
           metadata: { ...invokeMetadata, phase },
+          signal: invokeAbort.signal,
         }
-        if (params.signal) {
-          invokeConfig.signal = params.signal
-        }
-        const result = (await (agent as any).invoke({ messages: nextMessages } as any, invokeConfig)) as {
-          messages?: unknown[]
-        }
+
+        const result = (await Promise.race([
+          (agent as any).invoke({ messages: nextMessages } as any, invokeConfig) as Promise<{
+            messages?: unknown[]
+          }>,
+          timeoutPromise,
+        ]).finally(() => {
+          if (timeoutHandle) clearTimeout(timeoutHandle)
+          if (parentAbortListener && params.signal) {
+            params.signal.removeEventListener('abort', parentAbortListener)
+          }
+        })) as { messages?: unknown[] }
+
         return result.messages ?? nextMessages
       } catch (err) {
         if (attempt < toolSchemaRetries && isToolSchemaError(err)) {

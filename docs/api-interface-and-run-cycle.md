@@ -133,6 +133,7 @@ Tool and token events are also emitted while running:
 
 - `tool` events with `phase=start|end|error`
 - `token` events for streamed model tokens
+- phase execution is bounded by internal timeouts (`AGENT_PLAN_PHASE_TIMEOUT_MS`, `AGENT_BUILD_PHASE_TIMEOUT_MS`) to prevent indefinite hangs
 
 ### Step D: Worker finalization
 
