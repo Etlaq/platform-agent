@@ -534,7 +534,6 @@ export async function runAgent(params: AgentRunInput): Promise<{
     const actionsTool = createProjectActionsTool({
       workspaceRoot,
       rollback: rollback!,
-      rollbackRoot,
       allowHostInstalls,
     })
     tools.push(actionsTool)
@@ -1073,7 +1072,6 @@ export async function runAgent(params: AgentRunInput): Promise<{
           ? {
               status: 'rollback_snapshot',
               runId,
-              manifestPath: RollbackManager.manifestPath({ runId, rollbackRoot }),
               touchedFiles: rollback!.getTouchedFiles(),
               usage,
               cachedInputTokens,

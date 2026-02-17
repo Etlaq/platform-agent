@@ -66,7 +66,7 @@ Idempotency behavior:
 - result: `output`, `error`
 - usage: `inputTokens`, `outputTokens`, `totalTokens`, `cachedInputTokens`, `reasoningOutputTokens`
 - cost: `currency`, `estimatedUsd`, `pricingVersion`
-- meta: `provider`, `model`, `modelSource`, `attempt`, `maxAttempts`, `sandboxId`, `idempotencyKey`
+- meta: `provider`, `model`, `modelSource`, `usageSource`, `pricingSource`, `attempt`, `maxAttempts`, `sandboxId`, `idempotencyKey`
 
 ## 4) Streaming and Reconnect
 
@@ -114,7 +114,8 @@ This means client connection state does not control run execution state.
 
 - Encore secret `AgentApiKey` must be set in cloud envs.
 - Missing `AgentApiKey` blocks deployment during infrastructure validation.
-- Cost estimates use provider/model pricing mappings and are persisted on run completion.
+- Cost estimates are computed from provider response usage metadata only.
+- Pricing is resolved from `model_pricing` table entries (active row by provider/model); no hardcoded fallback pricing is used.
 
 ## 9) Smoke / Deep Checks
 

@@ -25,6 +25,7 @@ export const CAPABILITY_ACTIONS = [
   'scaffold_authjs_supabase_drizzle',
   'scaffold_cron_supabase_daily',
   'validate_env',
+  'rollback_list_commits',
   'rollback_run',
 ] as const
 
@@ -43,7 +44,8 @@ export const CAPABILITY_ENV: Record<string, string> = {
   AGENT_GIT_AUTHOR_EMAIL: 'Optional: git author email for auto-commits.',
   AGENT_GIT_COMMITTER_NAME: 'Optional: git committer name for auto-commits.',
   AGENT_GIT_COMMITTER_EMAIL: 'Optional: git committer email for auto-commits.',
-  ROLLBACK_DIR: 'Override rollback snapshot root directory (default: agent-runtime/rollbacks).',
+  ROLLBACK_DIR:
+    'Override host-run rollback metadata directory (default: agent-runtime/rollbacks). Used for touched-file tracking.',
   AGENT_TIMEOUT_MS: 'Per-request timeout for the model provider client (milliseconds).',
   AGENT_MAX_RETRIES: 'Max retries for provider HTTP requests.',
   OPENAI_BASE_URL: 'Optional: override OpenAI base URL (useful for OpenAI-compatible local gateways).',

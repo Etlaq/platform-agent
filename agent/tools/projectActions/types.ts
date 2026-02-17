@@ -5,7 +5,6 @@ import type { ProjectAction, ProjectActionInput } from './schemas'
 export interface CreateProjectActionsToolParams {
   workspaceRoot: string
   rollback: RollbackManager
-  rollbackRoot: string
   allowHostInstalls: boolean
 }
 

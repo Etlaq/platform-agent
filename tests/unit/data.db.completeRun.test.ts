@@ -60,7 +60,7 @@ describe('data/db completeRun', () => {
     expect(sql).toContain('model_source = COALESCE(')
     expect(sql).toContain('estimated_cost_usd = COALESCE(')
     expect(sql).toContain('pricing_version = COALESCE(')
-    expect(values).toEqual(['final output', 'openai', 'gpt-5', null, 11, 7, 18, null, null, 420, 0.00032, 'USD', 'default:v1', 'run-1'])
+    expect(values).toEqual(['final output', 'openai', 'gpt-5', null, 11, 7, 18, null, null, 420, null, null, null, 'run-1'])
   })
 
   it('stays backward-compatible when provider/model are omitted', async () => {

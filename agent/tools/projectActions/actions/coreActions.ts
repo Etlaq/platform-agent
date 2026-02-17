@@ -1,6 +1,6 @@
 import fs from 'node:fs'
 import path from 'node:path'
-import { RollbackManager } from '../../../rollback/rollbackManager'
+import { listRollbackCommits, rollbackToCommit } from '../../../rollback/gitRollback'
 import { fileExists } from '../helpers/fileSystem'
 import { parseDotEnvKeys, upsertEnvExample } from '../helpers/envFiles'
 import type { ProjectActionInputByAction } from '../schemas'
@@ -107,10 +107,23 @@ export function secretsSyncEnvExampleAction(
   }
 }
 
-export function rollbackRunAction(context: ProjectActionContext, input: ProjectActionInputByAction<'rollback_run'>) {
-  return RollbackManager.restoreFromDisk({
-    runId: input.runId,
-    rollbackRoot: context.params.rollbackRoot,
+export function rollbackListCommitsAction(
+  context: ProjectActionContext,
+  input: ProjectActionInputByAction<'rollback_list_commits'>
+) {
+  return listRollbackCommits({
+    workspaceRoot: context.params.workspaceRoot,
+    limit: input.limit,
+  })
+}
+
+export function rollbackRunAction(
+  context: ProjectActionContext,
+  input: ProjectActionInputByAction<'rollback_run'>
+) {
+  return rollbackToCommit({
+    workspaceRoot: context.params.workspaceRoot,
+    commitSha: input.commitSha,
   })
 }
 

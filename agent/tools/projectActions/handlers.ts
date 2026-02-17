@@ -1,5 +1,6 @@
 import {
   detectProjectAction,
+  rollbackListCommitsAction,
   rollbackRunAction,
   secretsReadEnvExampleAction,
   secretsStatusAction,
@@ -46,5 +47,6 @@ export const projectActionHandlers: ProjectActionHandlerMap = {
     requiresNextBun: true,
   }),
   validate_env: createActionHandler<'validate_env'>((context) => validateEnvAction(context), { requiresNextBun: true }),
+  rollback_list_commits: createActionHandler(rollbackListCommitsAction),
   rollback_run: createActionHandler(rollbackRunAction),
 }

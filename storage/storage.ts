@@ -1,7 +1,4 @@
 import { Bucket } from 'encore.dev/storage/objects'
-import fs from 'node:fs'
-import path from 'node:path'
-import { RollbackManager } from '../agent/rollback/rollbackManager'
 
 const encoder = new TextEncoder()
 const decoder = new TextDecoder()
@@ -14,10 +11,6 @@ function isNotFoundError(error: unknown) {
   if (!error || typeof error !== 'object') return false
   const maybe = error as { code?: unknown; message?: unknown }
   return maybe.code === 'not_found' || String(maybe.message ?? '').toLowerCase().includes('not found')
-}
-
-export function rollbackManifestKey(runId: string) {
-  return `rollbacks/${runId}/manifest.json`
 }
 
 export async function putJsonObject(key: string, payload: unknown) {
@@ -33,28 +26,4 @@ export async function getJsonObject<T>(key: string): Promise<T | null> {
     if (isNotFoundError(error)) return null
     throw error
   }
-}
-
-function getRollbackRoot() {
-  const raw = process.env.ROLLBACK_DIR || 'agent-runtime/rollbacks'
-  return path.isAbsolute(raw) ? raw : path.resolve(process.cwd(), raw)
-}
-
-export async function syncRollbackManifest(runId: string) {
-  const rollbackRoot = getRollbackRoot()
-  const manifestPath = RollbackManager.manifestPath({ runId, rollbackRoot })
-  const raw = await fs.promises.readFile(manifestPath, 'utf8')
-  const parsed = RollbackManager.parseManifest(raw, runId)
-  await putJsonObject(rollbackManifestKey(runId), parsed)
-}
-
-export async function readRollbackManifestFromDisk(runId: string) {
-  const rollbackRoot = getRollbackRoot()
-  const manifestPath = RollbackManager.manifestPath({ runId, rollbackRoot })
-  const raw = await fs.promises.readFile(manifestPath, 'utf8')
-  return RollbackManager.parseManifest(raw, runId)
-}
-
-export function rollbackRootPath() {
-  return getRollbackRoot()
 }

@@ -80,7 +80,7 @@ Reliability semantics:
 | `runs` | `runs/` | Public run lifecycle API (simple client contract) |
 | `worker` | `worker/` | Pub/Sub job processor and stale-run cron |
 | `data` | `data/` | PostgreSQL persistence layer |
-| `storage` | `storage/` | Object storage for rollback manifests |
+| `storage` | `storage/` | Object storage helpers for run artifacts/JSON payloads |
 | `sandbox` | `sandbox/` | Internal E2B sandbox management |
 | `download` | `download/` | Internal workspace/sandbox zip tooling |
 | `metrics` | `metrics/` | Internal monitoring endpoints |
@@ -89,8 +89,14 @@ The `agent/` directory contains the runtime engine (not an Encore service) — o
 
 ## Workspace Modes
 
-- **host** — Direct filesystem access with path policy enforcement and rollback tracking.
+- **host** — Direct filesystem access with path policy enforcement and git-backed rollback controls.
 - **e2b** — Isolated [E2B](https://e2b.dev) sandbox with limited command access via `sandbox_cmd` tool.
+
+## Pricing Accuracy
+
+- Usage/token counters are sourced from provider response metadata, not prompt/input size estimates.
+- Estimated USD cost is computed from `model_pricing` table rows for the resolved provider+model.
+- If no active pricing row exists for a model, cost estimate is left `null` rather than guessing.
 
 ## Environment Variables
 

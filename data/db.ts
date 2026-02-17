@@ -111,57 +111,6 @@ interface PricingSpec {
 
 const UNIQUE_VIOLATION = '23505'
 
-const DEFAULT_MODEL_PRICING: Record<string, PricingSpec> = {
-  'openai:gpt-5': {
-    currency: 'USD',
-    inputCostPer1k: 0.01,
-    outputCostPer1k: 0.03,
-    cachedInputCostPer1k: 0.001,
-    reasoningOutputCostPer1k: 0,
-    pricingVersion: 'default:v1',
-  },
-  'openai:gpt-5-mini': {
-    currency: 'USD',
-    inputCostPer1k: 0.0015,
-    outputCostPer1k: 0.006,
-    cachedInputCostPer1k: 0.00015,
-    reasoningOutputCostPer1k: 0,
-    pricingVersion: 'default:v1',
-  },
-  'openai:gpt-4.1': {
-    currency: 'USD',
-    inputCostPer1k: 0.01,
-    outputCostPer1k: 0.03,
-    cachedInputCostPer1k: 0.001,
-    reasoningOutputCostPer1k: 0,
-    pricingVersion: 'default:v1',
-  },
-  'anthropic:claude-3-7-sonnet-latest': {
-    currency: 'USD',
-    inputCostPer1k: 0.003,
-    outputCostPer1k: 0.015,
-    cachedInputCostPer1k: 0.0003,
-    reasoningOutputCostPer1k: 0,
-    pricingVersion: 'default:v1',
-  },
-  'xai:grok-3': {
-    currency: 'USD',
-    inputCostPer1k: 0.005,
-    outputCostPer1k: 0.015,
-    cachedInputCostPer1k: 0.0005,
-    reasoningOutputCostPer1k: 0,
-    pricingVersion: 'default:v1',
-  },
-  'zai:glm-4.5': {
-    currency: 'USD',
-    inputCostPer1k: 0.003,
-    outputCostPer1k: 0.009,
-    cachedInputCostPer1k: 0.0003,
-    reasoningOutputCostPer1k: 0,
-    pricingVersion: 'default:v1',
-  },
-}
-
 export const db = new SQLDatabase('agent', {
   migrations: './migrations',
 })
@@ -271,20 +220,22 @@ function mapPricingRow(row: PricingRow): PricingSpec {
 }
 
 async function resolvePricing(provider: string, model: string): Promise<PricingSpec | null> {
+  const normalizedProvider = normalizeLookup(provider)
+  const normalizedModel = normalizeLookup(model)
+  if (!normalizedProvider || !normalizedModel) return null
+
   const row = await db.queryRow<PricingRow>`
     SELECT currency, input_cost_per_1k, output_cost_per_1k, cached_input_cost_per_1k, reasoning_output_cost_per_1k, pricing_version
     FROM model_pricing
     WHERE active = TRUE
-      AND provider = ${provider}
-      AND model = ${model}
+      AND lower(provider) = ${normalizedProvider}
+      AND lower(model) = ${normalizedModel}
     ORDER BY updated_at DESC
     LIMIT 1
   `
 
   if (row) return mapPricingRow(row)
-
-  const fallback = DEFAULT_MODEL_PRICING[`${normalizeLookup(provider)}:${normalizeLookup(model)}`]
-  return fallback ?? null
+  return null
 }
 
 async function estimateCostUsd(meta: {
@@ -294,6 +245,7 @@ async function estimateCostUsd(meta: {
   cachedInputTokens?: number
   reasoningOutputTokens?: number
 }) {
+  // Cost estimates are computed only from provider-reported response usage metadata.
   if (!meta.provider || !meta.model || !meta.usage) {
     return {
       estimatedCostUsd: null as number | null,

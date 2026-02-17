@@ -64,6 +64,8 @@ interface RunSummaryResponse {
     provider: string | null
     model: string | null
     modelSource: string | null
+    usageSource: 'response_usage' | null
+    pricingSource: 'model_pricing_table' | null
     attempt: number
     maxAttempts: number
     sandboxId: string | null
@@ -235,7 +237,7 @@ function toSummary(run: NonNullable<Awaited<ReturnType<typeof getRun>>>): RunSum
           reasoningOutputTokens: run.reasoningOutputTokens ?? 0,
         }
       : null,
-    cost: run.costCurrency || run.estimatedCostUsd != null || run.pricingVersion
+    cost: run.estimatedCostUsd != null || run.pricingVersion
       ? {
           currency: run.costCurrency ?? 'USD',
           estimatedUsd: run.estimatedCostUsd,
@@ -246,6 +248,8 @@ function toSummary(run: NonNullable<Awaited<ReturnType<typeof getRun>>>): RunSum
       provider: run.provider,
       model: run.model,
       modelSource: run.modelSource,
+      usageSource: run.inputTokens != null ? 'response_usage' : null,
+      pricingSource: run.pricingVersion ? 'model_pricing_table' : null,
       attempt: run.attempt,
       maxAttempts: run.maxAttempts,
       sandboxId: run.sandboxId,

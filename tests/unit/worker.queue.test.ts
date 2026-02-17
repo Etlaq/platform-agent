@@ -76,7 +76,6 @@ const runAgentMock = vi.fn(async (_params: {
   onEvent: (event: { type: 'token' | 'tool' | 'status'; payload: unknown }) => void
 }) => null as AgentResult | null)
 const isRunAbortedErrorMock = vi.fn((_error: unknown) => false)
-const syncRollbackManifestMock = vi.fn(async (_runId: string) => undefined)
 const commitRunToGitMock = vi.fn(async (_params: {
   runId: string
   workspaceBackend?: 'host' | 'e2b' | null
@@ -137,10 +136,6 @@ vi.mock('../../agent/runAgent', () => ({
   },
 }))
 
-vi.mock('../../storage/storage', () => ({
-  syncRollbackManifest: syncRollbackManifestMock,
-}))
-
 vi.mock('../../worker/gitCommit', () => ({
   commitRunToGit: commitRunToGitMock,
 }))
@@ -169,7 +164,6 @@ describe('worker/queue completion persistence', () => {
     updateRunMetaMock.mockClear()
     runAgentMock.mockClear()
     isRunAbortedErrorMock.mockClear()
-    syncRollbackManifestMock.mockClear()
     commitRunToGitMock.mockClear()
     closeSandboxWithRetryMock.mockClear()
   })

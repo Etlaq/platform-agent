@@ -13,6 +13,7 @@ export const actionEnum = z.enum([
   'scaffold_authjs_supabase_drizzle',
   'scaffold_cron_supabase_daily',
   'validate_env',
+  'rollback_list_commits',
   'rollback_run',
 ])
 
@@ -36,7 +37,8 @@ export const toolSchema = z
     runInstall: z.boolean().optional(),
     name: z.string().min(1).max(64).optional(),
     confirm: z.literal('rollback').optional(),
-    runId: z.string().min(1).optional(),
+    limit: z.number().int().min(1).max(200).optional(),
+    commitSha: z.string().min(1).optional(),
   })
   .strict()
 
@@ -82,9 +84,13 @@ export const strictSchema = z.discriminatedUnion('action', [
     action: z.literal('validate_env'),
   }),
   z.object({
+    action: z.literal('rollback_list_commits'),
+    limit: z.number().int().min(1).max(200).optional().default(30),
+  }),
+  z.object({
     action: z.literal('rollback_run'),
     confirm: z.literal('rollback'),
-    runId: z.string().min(1),
+    commitSha: z.string().min(1),
   }),
 ])
 

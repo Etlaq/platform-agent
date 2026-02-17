@@ -100,7 +100,6 @@ const runAgentMock = vi.fn(async (_params: RunAgentParams) => ({
   usage: { inputTokens: 11, outputTokens: 19, totalTokens: 30 },
   durationMs: 1450,
 }))
-const syncRollbackManifestMock = vi.fn(async (_runId: string) => undefined)
 const commitRunToGitMock = vi.fn(async (_params: {
   runId: string
   workspaceBackend?: 'host' | 'e2b' | null
@@ -154,10 +153,6 @@ vi.mock('../../agent/runAgent', () => ({
       this.name = 'RunAbortedError'
     }
   },
-}))
-
-vi.mock('../../storage/storage', () => ({
-  syncRollbackManifest: syncRollbackManifestMock,
 }))
 
 vi.mock('../../worker/gitCommit', () => ({
@@ -246,7 +241,6 @@ describe('worker queue event lifecycle', () => {
     updateRunMetaMock.mockClear()
     updateRunStatusMock.mockClear()
     runAgentMock.mockReset()
-    syncRollbackManifestMock.mockClear()
     commitRunToGitMock.mockClear()
     closeSandboxWithRetryMock.mockClear()
 

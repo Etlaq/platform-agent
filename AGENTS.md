@@ -50,6 +50,11 @@ agent/       # runtime orchestration (plan/build phases)
 3. Events persist in `events` table and stream to clients.
 4. Finalization updates run/job status and usage/duration/provider/model metadata.
 
+## Rollback Model
+- `project_actions.rollback_list_commits`: list recent git commits for selection.
+- `project_actions.rollback_run`: restore selected commit snapshot as a new latest commit (no history rewrite).
+- Rollback cost/usage metadata is independent; pricing remains response-usage driven via DB pricing rows.
+
 ## High-Risk Areas
 - `runs/api.ts`: response shape and SSE behavior
 - `agent/runAgent.ts`: phase transitions, timeouts, emitted status payloads
@@ -74,4 +79,5 @@ agent/       # runtime orchestration (plan/build phases)
 - 2026-02-13T13:29:49.332Z: tool=tool | tool_error: Workspace is not a Next.js project (missing next dependency). | input={"action":"add_dependencies","deps":[{"name":"next","version":"^16.0.0","dev":false},{"name":"react","version":"^19.0.0","dev":false},{"name":"react-dom","version":"^19.0.0","dev":false},{"name":"tail
 - 2026-02-13T13:44:48.639Z: run_error: Workspace is not a Next.js project (missing next dependency).
 - 2026-02-17T21:20:00.000Z: docs_update: AGENTS.md updated to backend-focused Encore architecture with canonical /v1 API guidance.
+- 2026-02-17T22:45:00.000Z: rollback_update: rollback actions now use git commit history selection (`rollback_list_commits` + commit-based `rollback_run`).
 <!-- AGENTS_NOTES_END -->
