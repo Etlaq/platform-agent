@@ -116,7 +116,7 @@ jobs:
             -H 'Content-Type: application/json' \
             --data "$payload")"
 
-          rollout_id="$(printf '%s' "$rollout_response" | jq -er '.id')"
+          rollout_id="$(printf '%s' "$rollout_response" | jq -er '.data.id // .id')"
           echo "Triggered Encore rollout ${rollout_id} for commit ${COMMIT_SHA}."
           echo "rollout_id=$rollout_id" >> "$GITHUB_OUTPUT"
 
@@ -131,8 +131,8 @@ jobs:
               "https://api.encore.cloud/api/apps/${ENCORE_APP_ID}/rollouts/${ROLLOUT_ID}" \
               -H "Authorization: Bearer ${ENCORE_ACCESS_TOKEN}")"
 
-            status="$(printf '%s' "$rollout" | jq -r '.status')"
-            conclusion="$(printf '%s' "$rollout" | jq -r '.conclusion')"
+            status="$(printf '%s' "$rollout" | jq -r '.data.status // .status // "unknown"')"
+            conclusion="$(printf '%s' "$rollout" | jq -r '.data.conclusion // .conclusion // "unknown"')"
             echo "rollout=${ROLLOUT_ID} status=${status} conclusion=${conclusion} attempt=${attempt}"
 
             if [ "$status" = "completed" ]; then
