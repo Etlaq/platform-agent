@@ -19,6 +19,7 @@ OPENAI_API_KEY=<or any supported provider key>
 ## API
 
 All endpoints except `/`, `/health`, and `/capabilities` require the `X-Agent-Api-Key` header.
+Detailed request/worker lifecycle and troubleshooting are documented in `docs/api-interface-and-run-cycle.md`.
 
 | Method | Path | Description |
 |--------|------|-------------|
@@ -26,7 +27,8 @@ All endpoints except `/`, `/health`, and `/capabilities` require the `X-Agent-Ap
 | GET | `/health` | Health check |
 | GET | `/capabilities` | Supported actions and constraints |
 | POST | `/runs` | Create a new agent run |
-| GET | `/runs/:id` | SSE event stream for a run |
+| GET | `/runs/:id` | Run summary (JSON) |
+| GET | `/runs/:id/stream` | SSE event stream for a run |
 | POST | `/runs/:id/cancel` | Cancel a running job |
 | GET | `/runs/:id/events` | List run events |
 | GET | `/runs/:id/artifacts` | List run artifacts |
@@ -34,7 +36,7 @@ All endpoints except `/`, `/health`, and `/capabilities` require the `X-Agent-Ap
 | POST | `/runs/:id/rollback` | Restore workspace to pre-run state |
 | POST | `/exec` | Execute command in E2B sandbox |
 | POST | `/sandbox/create` | Create E2B sandbox |
-| GET | `/sandbox/:id/info` | Sandbox info |
+| POST | `/sandbox/info` | Sandbox info |
 | POST | `/sandbox/:id/dev/start` | Start sandbox dev server |
 | POST | `/sandbox/:id/dev/stop` | Stop sandbox dev server |
 | GET | `/download.zip` | Download workspace as ZIP (includes `.git`) |
@@ -49,7 +51,7 @@ curl -X POST http://localhost:4000/runs \
   -d '{"prompt": "Add a dark mode toggle", "stream": true}'
 ```
 
-The response includes a run `id`. Stream events with `GET /runs/:id` (SSE).
+The response includes a run `id`. Stream events with `GET /runs/:id/stream` (SSE).
 
 ## How It Works
 
