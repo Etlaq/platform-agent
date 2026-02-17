@@ -16,7 +16,9 @@ Workflow file: `.github/workflows/ci-cd.yml`
   - `POST https://api.encore.cloud/api/oauth/token`
 - trigger rollout for the pushed SHA:
   - `POST https://api.encore.cloud/api/apps/{app_id}/envs/{env_name}/rollouts`
-  - request body uses `source.kind=git`, `branch=master`, `revision=<sha>`
+  - request body: `{"sha":"<commit-sha>"}`
+- poll rollout status until completion:
+  - `GET https://api.encore.cloud/api/apps/{app_id}/rollouts/{rollout_id}`
 
 This gives deterministic deployment per commit instead of relying only on implicit branch triggers.
 

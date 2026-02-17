@@ -77,22 +77,23 @@ jobs:
           ENCORE_CLIENT_SECRET: ${{ secrets.ENCORE_CLIENT_SECRET }}
         run: |
           token_response="$(curl -fsSL -X POST https://api.encore.cloud/api/oauth/token \
-            -H 'Content-Type: application/json' \
-            -d "{\"client_id\":\"${ENCORE_CLIENT_ID}\",\"client_secret\":\"${ENCORE_CLIENT_SECRET}\",\"grant_type\":\"client_credentials\"}")"
+            -d "client_id=${ENCORE_CLIENT_ID}" \
+            -d "client_secret=${ENCORE_CLIENT_SECRET}" \
+            -d "grant_type=client_credentials")"
 
           access_token="$(printf '%s' "$token_response" | jq -er '.access_token')"
           echo "::add-mask::$access_token"
           echo "access_token=$access_token" >> "$GITHUB_OUTPUT"
 
       - name: Trigger Encore rollout for commit
+        id: rollout
         env:
           ENCORE_APP_ID: ${{ secrets.ENCORE_APP_ID }}
           ENCORE_ENV_NAME: ${{ secrets.ENCORE_ENV_NAME }}
           ENCORE_ACCESS_TOKEN: ${{ steps.oauth.outputs.access_token }}
           COMMIT_SHA: ${{ github.sha }}
         run: |
-          payload="$(jq -cn --arg branch "master" --arg revision "$COMMIT_SHA" \
-            '{source:{kind:"git",branch:$branch,revision:$revision}}')"
+          payload="$(jq -cn --arg sha "$COMMIT_SHA" '{sha:$sha}')"
 
           rollout_response="$(curl -fsSL -X POST \
             "https://api.encore.cloud/api/apps/${ENCORE_APP_ID}/envs/${ENCORE_ENV_NAME}/rollouts" \
@@ -102,3 +103,35 @@ jobs:
 
           rollout_id="$(printf '%s' "$rollout_response" | jq -er '.id')"
           echo "Triggered Encore rollout ${rollout_id} for commit ${COMMIT_SHA}."
+          echo "rollout_id=$rollout_id" >> "$GITHUB_OUTPUT"
+
+      - name: Wait for rollout completion
+        env:
+          ENCORE_APP_ID: ${{ secrets.ENCORE_APP_ID }}
+          ENCORE_ACCESS_TOKEN: ${{ steps.oauth.outputs.access_token }}
+          ROLLOUT_ID: ${{ steps.rollout.outputs.rollout_id }}
+        run: |
+          for attempt in $(seq 1 60); do
+            rollout="$(curl -fsSL \
+              "https://api.encore.cloud/api/apps/${ENCORE_APP_ID}/rollouts/${ROLLOUT_ID}" \
+              -H "Authorization: Bearer ${ENCORE_ACCESS_TOKEN}")"
+
+            status="$(printf '%s' "$rollout" | jq -r '.status')"
+            conclusion="$(printf '%s' "$rollout" | jq -r '.conclusion')"
+            echo "rollout=${ROLLOUT_ID} status=${status} conclusion=${conclusion} attempt=${attempt}"
+
+            if [ "$status" = "completed" ]; then
+              if [ "$conclusion" = "success" ]; then
+                exit 0
+              fi
+
+              echo "::error::Encore rollout completed with conclusion=${conclusion}"
+              printf '%s\n' "$rollout"
+              exit 1
+            fi
+
+            sleep 10
+          done
+
+          echo "::error::Timed out waiting for Encore rollout ${ROLLOUT_ID}"
+          exit 1
