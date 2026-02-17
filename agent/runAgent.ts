@@ -15,7 +15,7 @@ import { E2BSandboxBackend } from './backends/e2bSandboxBackend'
 import { createProjectActionsTool } from './tools/projectActions'
 import { createSandboxCmdTool } from './tools/sandboxCmd'
 import { Sandbox } from '@e2b/code-interpreter'
-import { createSandboxWithRetry } from '../common/e2bSandbox'
+import { createSandboxWithRetry, runSandboxCommandWithTimeout } from '../common/e2bSandbox'
 import { appendAgentsNote, ensureAgentsMd, loadAgentsMdTemplate } from './agentsMd'
 import {
   extractSandboxCmd,
@@ -796,7 +796,7 @@ export async function runAgent(params: AgentRunInput): Promise<{
     const cwd = process.env.SANDBOX_APP_DIR || '/home/user'
     const timeoutMs = resolveAutoLintTimeoutMs(process.env.AUTO_LINT_TIMEOUT_MS)
     try {
-      const result = await sandbox.commands.run(cmd, { cwd, timeoutMs })
+      const result = await runSandboxCommandWithTimeout(sandbox, cmd, { cwd, timeoutMs })
       throwIfAborted(params.signal)
       return toSandboxCmdResult({
         ok: true,

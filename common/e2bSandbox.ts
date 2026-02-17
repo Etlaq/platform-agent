@@ -26,6 +26,18 @@ function resolveE2BRequestTimeoutMs() {
   return parseBoundedInt(process.env.E2B_REQUEST_TIMEOUT_MS, 5 * 60_000, 0, 60 * 60_000)
 }
 
+function resolveE2BCommandDefaultTimeoutMs() {
+  return parseBoundedInt(process.env.E2B_CMD_DEFAULT_TIMEOUT_MS, 5 * 60_000, 1_000, 60 * 60_000)
+}
+
+function resolveE2BHardTimeoutGraceMs() {
+  return parseBoundedInt(process.env.E2B_HARD_TIMEOUT_GRACE_MS, 15_000, 0, 10 * 60_000)
+}
+
+function resolveE2BHardTimeoutMaxMs() {
+  return parseBoundedInt(process.env.E2B_HARD_TIMEOUT_MAX_MS, 30 * 60_000, 30_000, 24 * 60 * 60_000)
+}
+
 function shouldLogE2BRetries() {
   return (process.env.E2B_RETRY_LOG || 'false').toLowerCase() === 'true'
 }
@@ -113,4 +125,42 @@ export async function createSandboxWithRetry(template: string, opts?: SandboxOpt
 export async function connectSandboxWithRetry(sandboxId: string, opts?: SandboxConnectOpts): Promise<Sandbox> {
   const merged = withRequestTimeout(opts)
   return await withE2BRetries('Sandbox.connect', async () => Sandbox.connect(sandboxId, merged))
+}
+
+export async function runSandboxCommandWithTimeout(
+  sandbox: Sandbox,
+  cmd: string,
+  opts?: {
+    background?: boolean
+    cwd?: string
+    envs?: Record<string, string>
+    timeoutMs?: number
+  },
+): Promise<unknown> {
+  const softTimeoutMs = opts?.timeoutMs ?? resolveE2BCommandDefaultTimeoutMs()
+  const hardTimeoutMs = Math.max(
+    15_000,
+    Math.min(resolveE2BHardTimeoutMaxMs(), softTimeoutMs + resolveE2BHardTimeoutGraceMs()),
+  )
+
+  let timeoutHandle: ReturnType<typeof setTimeout> | null = null
+  const hardTimeout = new Promise<never>((_resolve, reject) => {
+    timeoutHandle = setTimeout(() => {
+      reject(new Error(`sandbox command hard timeout after ${hardTimeoutMs}ms`))
+    }, hardTimeoutMs)
+  })
+
+  try {
+    return await Promise.race([
+      sandbox.commands.run(cmd, {
+        background: opts?.background ?? false,
+        cwd: opts?.cwd,
+        envs: opts?.envs,
+        timeoutMs: softTimeoutMs,
+      } as any),
+      hardTimeout,
+    ])
+  } finally {
+    if (timeoutHandle) clearTimeout(timeoutHandle)
+  }
 }

@@ -2,7 +2,7 @@ import { api, APIError, ErrCode } from 'encore.dev/api'
 import { secret } from 'encore.dev/config'
 import { Sandbox } from '@e2b/code-interpreter'
 import { assertE2BConfigured, isReachable, parsePositiveInt, resolveE2BTemplate, resolveSandboxAppDir } from '../common/e2b'
-import { connectSandboxWithRetry, createSandboxWithRetry } from '../common/e2bSandbox'
+import { connectSandboxWithRetry, createSandboxWithRetry, runSandboxCommandWithTimeout } from '../common/e2bSandbox'
 
 import '../auth/auth'
 
@@ -158,12 +158,12 @@ export const exec = api(
     const nextUrl = `https://${sb.getHost(3000)}`
 
     try {
-      const cmdRes = await sb.commands.run(payload.cmd, {
+      const cmdRes = await runSandboxCommandWithTimeout(sb, payload.cmd, {
         background: payload.background ?? false,
         cwd: payload.cwd ?? defaultCwd,
         envs: payload.envs,
         timeoutMs: payload.timeoutMs,
-      } as any)
+      })
 
       if (payload.background) {
         const handle = cmdRes as any
@@ -282,7 +282,7 @@ export const sandboxDevStart = api(
     }
 
     const cmd = `cd ${shellQuote(appDir)} && PORT=${port} HOST=0.0.0.0 bun run dev -- --hostname 0.0.0.0 --port ${port}`
-    const handle = (await sb.commands.run(cmd, { background: true })) as any
+    const handle = (await runSandboxCommandWithTimeout(sb, cmd, { background: true })) as any
 
     return {
       ok: true,
