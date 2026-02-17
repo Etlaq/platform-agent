@@ -1,4 +1,5 @@
 import { APIError, ErrCode } from 'encore.dev/api'
+import { hydrateRuntimeEnvFromSecrets } from './runtimeSecrets'
 
 export function parsePositiveInt(value: number | undefined, fallback: number, min = 1) {
   if (!Number.isFinite(value)) return fallback
@@ -6,6 +7,7 @@ export function parsePositiveInt(value: number | undefined, fallback: number, mi
 }
 
 export function resolveE2BTemplate(override?: string) {
+  hydrateRuntimeEnvFromSecrets()
   return override || process.env.E2B_TEMPLATE || 'code-interpreter-v1'
 }
 
@@ -14,6 +16,8 @@ export function resolveSandboxAppDir() {
 }
 
 export function assertE2BConfigured() {
+  hydrateRuntimeEnvFromSecrets()
+
   if (!process.env.E2B_API_KEY) {
     throw new APIError(ErrCode.Unavailable, 'E2B not configured (E2B_API_KEY missing).')
   }

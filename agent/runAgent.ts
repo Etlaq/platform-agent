@@ -16,6 +16,7 @@ import { createProjectActionsTool } from './tools/projectActions'
 import { createSandboxCmdTool } from './tools/sandboxCmd'
 import { Sandbox } from '@e2b/code-interpreter'
 import { createSandboxWithRetry } from '../common/e2bSandbox'
+import { hydrateRuntimeEnvFromSecrets } from '../common/runtimeSecrets'
 import { appendAgentsNote, ensureAgentsMd, loadAgentsMdTemplate } from './agentsMd'
 import {
   extractSandboxCmd,
@@ -378,6 +379,8 @@ export async function runAgent(params: AgentRunInput): Promise<{
   durationMs?: number
 }> {
   throwIfAborted(params.signal)
+  hydrateRuntimeEnvFromSecrets()
+
   const selection = resolveModelSelection({
     provider: params.provider,
     model: params.model,
