@@ -1,4 +1,5 @@
 import { Topic, Subscription } from 'encore.dev/pubsub'
+import { secret } from 'encore.dev/config'
 import {
   cancelJobByRunId,
   completeRun,
@@ -21,6 +22,42 @@ interface RunRequestedEvent {
 }
 
 const POLL_CANCEL_MS = 750
+
+const agentProviderSecret = secret('AGENT_PROVIDER')
+const zaiApiKeySecret = secret('ZAI_API_KEY')
+const zaiModelSecret = secret('ZAI_MODEL')
+const anthropicApiKeySecret = secret('ANTHROPIC_API_KEY')
+const e2bApiKeySecret = secret('E2B_API_KEY')
+const e2bTemplateSecret = secret('E2B_TEMPLATE')
+
+function normalizeSecret(value: string | null | undefined) {
+  if (typeof value !== 'string') return null
+  const trimmed = value.trim()
+  return trimmed.length > 0 ? trimmed : null
+}
+
+function setFromSecretIfMissing(envKey: string, readSecret: () => string) {
+  const current = normalizeSecret(process.env[envKey])
+  if (current) return
+
+  try {
+    const secretValue = normalizeSecret(readSecret())
+    if (secretValue) {
+      process.env[envKey] = secretValue
+    }
+  } catch {
+    // Existing runtime checks surface clear errors when required values are absent.
+  }
+}
+
+function hydrateWorkerEnvFromSecrets() {
+  setFromSecretIfMissing('AGENT_PROVIDER', agentProviderSecret)
+  setFromSecretIfMissing('ZAI_API_KEY', zaiApiKeySecret)
+  setFromSecretIfMissing('ZAI_MODEL', zaiModelSecret)
+  setFromSecretIfMissing('ANTHROPIC_API_KEY', anthropicApiKeySecret)
+  setFromSecretIfMissing('E2B_API_KEY', e2bApiKeySecret)
+  setFromSecretIfMissing('E2B_TEMPLATE', e2bTemplateSecret)
+}
 
 function parsePositiveInt(name: string, fallback: number, opts?: { min?: number; max?: number }) {
   const raw = process.env[name]
@@ -50,6 +87,8 @@ async function emit(runId: string, type: string, payload: unknown) {
 }
 
 async function processRun(runId: string) {
+  hydrateWorkerEnvFromSecrets()
+
   const baseRun = await getRun(runId)
   if (!baseRun) return
 

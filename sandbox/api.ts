@@ -1,4 +1,5 @@
 import { api, APIError, ErrCode } from 'encore.dev/api'
+import { secret } from 'encore.dev/config'
 import { Sandbox } from '@e2b/code-interpreter'
 import { assertE2BConfigured, isReachable, parsePositiveInt, resolveE2BTemplate, resolveSandboxAppDir } from '../common/e2b'
 import { connectSandboxWithRetry, createSandboxWithRetry } from '../common/e2bSandbox'
@@ -87,6 +88,42 @@ interface SandboxStopResponse {
   killSandbox: boolean
 }
 
+const e2bApiKeySecret = secret('E2B_API_KEY')
+const e2bTemplateSecret = secret('E2B_TEMPLATE')
+
+function normalizeSecret(value: string | null | undefined) {
+  if (typeof value !== 'string') return null
+  const trimmed = value.trim()
+  return trimmed.length > 0 ? trimmed : null
+}
+
+function hydrateSandboxEnvFromSecrets() {
+  const currentApiKey = normalizeSecret(process.env.E2B_API_KEY)
+  if (!currentApiKey) {
+    try {
+      const apiKey = normalizeSecret(e2bApiKeySecret())
+      if (apiKey) process.env.E2B_API_KEY = apiKey
+    } catch {
+      // Validation below returns the user-facing error.
+    }
+  }
+
+  const currentTemplate = normalizeSecret(process.env.E2B_TEMPLATE)
+  if (!currentTemplate) {
+    try {
+      const template = normalizeSecret(e2bTemplateSecret())
+      if (template) process.env.E2B_TEMPLATE = template
+    } catch {
+      // Validation below returns the user-facing error.
+    }
+  }
+}
+
+function ensureE2BConfigured() {
+  hydrateSandboxEnvFromSecrets()
+  assertE2BConfigured()
+}
+
 function shellQuote(value: string) {
   return `'${value.replace(/'/g, `'\\''`)}'`
 }
@@ -94,7 +131,7 @@ function shellQuote(value: string) {
 export const exec = api(
   { method: 'POST', path: '/exec', expose: true, auth: true },
   async (payload: ExecRequest): Promise<ExecResponse> => {
-    assertE2BConfigured()
+    ensureE2BConfigured()
 
     if (!payload.cmd || payload.cmd.trim().length === 0) {
       throw APIError.invalidArgument('cmd is required')
@@ -159,7 +196,7 @@ export const exec = api(
 export const sandboxCreate = api(
   { method: 'POST', path: '/sandbox/create', expose: true, auth: true },
   async (payload: SandboxCreateRequest): Promise<SandboxCreateResponse> => {
-    assertE2BConfigured()
+    ensureE2BConfigured()
 
     const template = resolveE2BTemplate(payload.template)
     const timeoutMs = payload.timeoutMs && payload.timeoutMs > 0 ? payload.timeoutMs : undefined
@@ -187,7 +224,7 @@ export const sandboxCreate = api(
 export const sandboxInfo = api(
   { method: 'POST', path: '/sandbox/info', expose: true, auth: true },
   async ({ sandboxId }: SandboxInfoRequest): Promise<SandboxInfoResponse> => {
-    assertE2BConfigured()
+    ensureE2BConfigured()
 
     const sb = await connectSandboxWithRetry(sandboxId)
     const running = await sb.isRunning().catch(() => false)
@@ -212,7 +249,7 @@ export const sandboxInfo = api(
 export const sandboxDevStart = api(
   { method: 'POST', path: '/sandbox/dev/start', expose: true, auth: true },
   async (payload: SandboxStartRequest): Promise<SandboxStartResponse> => {
-    assertE2BConfigured()
+    ensureE2BConfigured()
 
     const port = parsePositiveInt(payload.port, 3000)
     const template = resolveE2BTemplate(payload.template)
@@ -252,7 +289,7 @@ export const sandboxDevStart = api(
 export const sandboxDevStop = api(
   { method: 'POST', path: '/sandbox/dev/stop', expose: true, auth: true },
   async (payload: SandboxStopRequest): Promise<SandboxStopResponse> => {
-    assertE2BConfigured()
+    ensureE2BConfigured()
 
     const sb = await connectSandboxWithRetry(payload.sandboxId)
     const killed = await sb.commands.kill(payload.pid).catch(() => false)
