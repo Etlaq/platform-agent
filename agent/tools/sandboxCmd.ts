@@ -11,6 +11,9 @@ const sandboxCmdSchema = z.object({
 
 const ALLOWED_BINARIES = new Set(['bun', 'bunx', 'mkdir', 'rm'])
 const SHELL_META_PATTERN = /[;&|`$><(){}\n\r]/
+const DEFAULT_COMMAND_TIMEOUT_MS = 300_000
+const HARD_TIMEOUT_GRACE_MS = 15_000
+const MAX_HARD_TIMEOUT_MS = 30 * 60_000
 
 function getBinary(cmd: string) {
   const trimmed = cmd.trim()
@@ -69,6 +72,40 @@ function isTimeoutError(err: unknown) {
   return lower.includes('deadline_exceeded') || lower.includes('timed out') || lower.includes('timeout')
 }
 
+async function runSandboxCommandWithHardTimeout(params: {
+  sandbox: Sandbox
+  cmd: string
+  cwd: string
+  envs?: Record<string, string>
+  timeoutMs?: number
+}) {
+  const softTimeoutMs = params.timeoutMs ?? DEFAULT_COMMAND_TIMEOUT_MS
+  const hardTimeoutMs = Math.max(
+    15_000,
+    Math.min(MAX_HARD_TIMEOUT_MS, softTimeoutMs + HARD_TIMEOUT_GRACE_MS),
+  )
+
+  let timeoutHandle: ReturnType<typeof setTimeout> | null = null
+  const hardTimeout = new Promise<never>((_resolve, reject) => {
+    timeoutHandle = setTimeout(() => {
+      reject(new Error(`sandbox command hard timeout after ${hardTimeoutMs}ms`))
+    }, hardTimeoutMs)
+  })
+
+  try {
+    return await Promise.race([
+      params.sandbox.commands.run(params.cmd, {
+        cwd: params.cwd,
+        envs: params.envs,
+        timeoutMs: softTimeoutMs,
+      } as any),
+      hardTimeout,
+    ])
+  } finally {
+    if (timeoutHandle) clearTimeout(timeoutHandle)
+  }
+}
+
 async function cleanupStaleNextBuild(params: { sandbox: Sandbox; cwd: string }) {
   // E2B command timeouts can leave orphaned build processes behind.
   // Kill stale Next.js build processes before/after build attempts.
@@ -79,10 +116,12 @@ async function cleanupStaleNextBuild(params: { sandbox: Sandbox; cwd: string }) 
     "pkill -f 'node .*/\\.next/dev/build/[p]ostcss\\.js' || true; " +
     "pkill -f '(^| )b[u]n run build( |$)' || true; " +
     "rm -f .next/lock || true"
-  await params.sandbox.commands.run(cleanupCmd, {
+  await runSandboxCommandWithHardTimeout({
+    sandbox: params.sandbox,
+    cmd: cleanupCmd,
     cwd: params.cwd,
     timeoutMs: 10_000,
-  } as any).catch(() => undefined)
+  }).catch(() => undefined)
 }
 
 export function createSandboxCmdTool(params: {
@@ -121,7 +160,9 @@ export function createSandboxCmdTool(params: {
       }
 
       try {
-        const res = await params.sandbox.commands.run(parsed.data.cmd, {
+        const res = await runSandboxCommandWithHardTimeout({
+          sandbox: params.sandbox,
+          cmd: parsed.data.cmd,
           cwd,
           envs: parsed.data.envs,
           timeoutMs: parsed.data.timeoutMs,
