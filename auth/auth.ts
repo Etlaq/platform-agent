@@ -10,7 +10,7 @@ function normalizeOptionalSecret(secretValue: string | null | undefined) {
   return trimmed.length > 0 ? trimmed : null
 }
 
-export function resolveAgentApiKey() {
+function resolveAgentApiKey() {
   try {
     const fromSecret = normalizeOptionalSecret(agentApiKeySecret())
     if (fromSecret) return fromSecret

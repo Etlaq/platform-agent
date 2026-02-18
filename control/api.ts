@@ -38,11 +38,15 @@ interface CapabilitiesResponse {
 
 const PUBLIC_V1_ENDPOINTS = ['/v1', '/v1/health', '/v1/capabilities']
 const AUTH_V1_ENDPOINTS = [
-  '/v1/runs',
-  '/v1/runs/:id',
-  '/v1/runs/:id/stream',
-  '/v1/runs/:id/cancel',
-  '/v1/runs/:id/download.zip',
+  '/v1/projects',
+  '/v1/projects/:projectId',
+  '/v1/projects/:projectId/runs',
+  '/v1/projects/:projectId/messages',
+  '/v1/projects/:projectId/runs/:id',
+  '/v1/projects/:projectId/runs/:id/messages',
+  '/v1/projects/:projectId/runs/:id/stream',
+  '/v1/projects/:projectId/runs/:id/cancel',
+  '/v1/projects/:projectId/runs/:id/download.zip',
 ]
 const LEGACY_ENDPOINTS: string[] = []
 

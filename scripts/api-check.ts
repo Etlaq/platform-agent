@@ -11,6 +11,9 @@ interface CheckOptions {
 
 interface RunSummary {
   id: string
+  projectId: string
+  runIndex: number
+  writable: boolean
   status: string
   output?: string | null
   error?: string | null
@@ -24,6 +27,19 @@ interface Envelope<T> {
     message?: string
   }
   meta?: unknown
+}
+
+interface CreateProjectMessageResponse {
+  run: {
+    id: string
+    runIndex: number
+    writable: boolean
+  }
+  message: {
+    role: string
+    content: string
+    createdAt: string
+  }
 }
 
 function parseArgValue(name: string) {
@@ -113,41 +129,17 @@ function sleep(ms: number) {
   return new Promise<void>((resolve) => setTimeout(resolve, ms))
 }
 
-async function runChecks(opts: CheckOptions) {
-  console.log(`[api-check] mode=${opts.mode} base=${opts.apiBase}`)
+function makeIdempotencyKey(prefix: string) {
+  return `${prefix}-${Date.now()}-${Math.random().toString(36).slice(2, 10)}`
+}
 
-  const health = await request<{ status: string; ts: string }>(opts, '/v1/health', 'GET')
-  console.log(`[api-check] health=${health.status} ts=${health.ts}`)
-
-  const capabilities = await request<{ name: string; actions: string[] }>(opts, '/v1/capabilities', 'GET')
-  console.log(`[api-check] capabilities name=${capabilities.name} actions=${capabilities.actions.length}`)
-
-  const prompt = process.env.CHECK_PROMPT
-    ?? 'Create a tiny text update and summarize changed files.'
-  const idempotencyKey = `api-check-${Date.now()}-${Math.random().toString(36).slice(2, 10)}`
-  const createRun = await request<{ id: string; status: string }>(
-    opts,
-    '/v1/runs',
-    'POST',
-    {
-      projectId: opts.projectId,
-      prompt,
-      stream: false,
-      provider: process.env.CHECK_PROVIDER,
-      model: process.env.CHECK_MODEL,
-    },
-    {
-      'Idempotency-Key': idempotencyKey,
-    },
-  )
-
-  const runId = createRun.id
+async function waitForTerminalRun(opts: CheckOptions, projectId: string, runId: string) {
   const deadline = Date.now() + opts.timeoutMs
   let summary: RunSummary | null = null
 
   while (Date.now() < deadline) {
-    summary = await request<RunSummary>(opts, `/v1/runs/${runId}`, 'GET')
-    console.log(`[api-check] run=${runId} status=${summary.status}`)
+    summary = await request<RunSummary>(opts, `/v1/projects/${projectId}/runs/${runId}`, 'GET')
+    console.log(`[api-check] run=${runId} index=${summary.runIndex} status=${summary.status} writable=${summary.writable}`)
     if (summary.status === 'completed' || summary.status === 'error' || summary.status === 'cancelled') {
       break
     }
@@ -162,8 +154,57 @@ async function runChecks(opts: CheckOptions) {
     throw new Error(`Run ${runId} ended in ${summary.status}: ${summary.error ?? 'no error text'}`)
   }
 
+  return summary
+}
+
+async function runChecks(opts: CheckOptions) {
+  console.log(`[api-check] mode=${opts.mode} base=${opts.apiBase}`)
+
+  const health = await request<{ status: string; ts: string }>(opts, '/v1/health', 'GET')
+  console.log(`[api-check] health=${health.status} ts=${health.ts}`)
+
+  const capabilities = await request<{ name: string; actions: string[] }>(opts, '/v1/capabilities', 'GET')
+  console.log(`[api-check] capabilities name=${capabilities.name} actions=${capabilities.actions.length}`)
+
+  const project = await request<{
+    id: string
+    name: string
+    latestRunId: string | null
+    created: boolean
+  }>(
+    opts,
+    '/v1/projects',
+    'POST',
+    {
+      id: opts.projectId,
+      name: process.env.CHECK_PROJECT_NAME ?? `API Check ${opts.projectId}`,
+    },
+  )
+  console.log(`[api-check] project id=${project.id} created=${project.created} latestRun=${project.latestRunId ?? 'none'}`)
+
+  const prompt = process.env.CHECK_PROMPT
+    ?? 'Create a tiny text update and summarize changed files.'
+  const createRun = await request<{ id: string; status: string; runIndex: number; writable: boolean }>(
+    opts,
+    `/v1/projects/${opts.projectId}/runs`,
+    'POST',
+    {
+      prompt,
+      input: { check: opts.mode },
+      stream: false,
+      provider: process.env.CHECK_PROVIDER,
+      model: process.env.CHECK_MODEL,
+    },
+    {
+      'Idempotency-Key': makeIdempotencyKey('api-check-run'),
+    },
+  )
+
+  const firstRunId = createRun.id
+  const firstRunSummary = await waitForTerminalRun(opts, opts.projectId, firstRunId)
+
   if (opts.mode === 'deep') {
-    const streamRes = await fetch(`${opts.apiBase}/v1/runs/${runId}/stream`, {
+    const streamRes = await fetch(`${opts.apiBase}/v1/projects/${opts.projectId}/runs/${firstRunId}/stream`, {
       method: 'GET',
       headers: {
         'X-Agent-Api-Key': opts.apiKey,
@@ -171,7 +212,7 @@ async function runChecks(opts: CheckOptions) {
     })
 
     if (!streamRes.ok || !streamRes.body) {
-      throw new Error(`Deep check failed: stream endpoint unavailable for run ${runId}.`)
+      throw new Error(`Deep check failed: stream endpoint unavailable for run ${firstRunId}.`)
     }
 
     const reader = streamRes.body.getReader()
@@ -194,10 +235,10 @@ async function runChecks(opts: CheckOptions) {
     reader.releaseLock()
 
     if (!streamText.includes('event:')) {
-      throw new Error(`Deep check failed: stream produced no events for run ${runId}.`)
+      throw new Error(`Deep check failed: stream produced no events for run ${firstRunId}.`)
     }
 
-    const replayRes = await fetch(`${opts.apiBase}/v1/runs/${runId}/stream`, {
+    const replayRes = await fetch(`${opts.apiBase}/v1/projects/${opts.projectId}/runs/${firstRunId}/stream`, {
       method: 'GET',
       headers: {
         'X-Agent-Api-Key': opts.apiKey,
@@ -205,31 +246,63 @@ async function runChecks(opts: CheckOptions) {
       },
     })
     if (!replayRes.ok) {
-      throw new Error(`Deep check failed: replay stream failed for run ${runId}.`)
+      throw new Error(`Deep check failed: replay stream failed for run ${firstRunId}.`)
     }
     replayRes.body?.cancel().catch(() => undefined)
 
-    const downloadRes = await fetch(`${opts.apiBase}/v1/runs/${runId}/download.zip`, {
+    const downloadRes = await fetch(`${opts.apiBase}/v1/projects/${opts.projectId}/runs/${firstRunId}/download.zip`, {
       method: 'GET',
       headers: {
         'X-Agent-Api-Key': opts.apiKey,
       },
     })
     if (!downloadRes.ok) {
-      throw new Error(`Deep check failed: run zip download failed for run ${runId}.`)
+      throw new Error(`Deep check failed: run zip download failed for run ${firstRunId}.`)
     }
 
-    const summaryWithCost = await request<RunSummary>(opts, `/v1/runs/${runId}`, 'GET')
-    if (summaryWithCost.status !== 'completed') {
-      throw new Error(`Deep check failed: run ${runId} is not completed after stream validation.`)
+    const secondRunEnvelope = await request<CreateProjectMessageResponse>(
+      opts,
+      `/v1/projects/${opts.projectId}/messages`,
+      'POST',
+      {
+        content: process.env.CHECK_FOLLOWUP_PROMPT ?? 'Now refine the output and include a concise implementation checklist.',
+        input: { sourceRunId: firstRunId },
+        stream: false,
+        provider: process.env.CHECK_PROVIDER,
+        model: process.env.CHECK_MODEL,
+      },
+      {
+        'Idempotency-Key': makeIdempotencyKey('api-check-msg'),
+      },
+    )
+    const secondRun = secondRunEnvelope.run
+
+    const secondRunSummary = await waitForTerminalRun(opts, opts.projectId, secondRun.id)
+
+    const firstRunAfterSecond = await request<RunSummary>(opts, `/v1/projects/${opts.projectId}/runs/${firstRunId}`, 'GET')
+    if (firstRunAfterSecond.writable) {
+      throw new Error('Deep check failed: previous run remained writable after new run creation.')
+    }
+    if (!secondRunSummary.writable) {
+      throw new Error('Deep check failed: newest run is not marked writable.')
+    }
+
+    const messages = await request<Array<{ id: number; role: string; content: string }>>(
+      opts,
+      `/v1/projects/${opts.projectId}/runs/${secondRun.id}/messages`,
+      'GET',
+    )
+
+    if (messages.length === 0) {
+      throw new Error('Deep check failed: run messages endpoint returned no messages.')
     }
 
     console.log(
-      `[api-check] deep replay_from=${lastEventId} zip_status=${downloadRes.status} stream_bytes=${streamText.length}`,
+      `[api-check] deep replay_from=${lastEventId} zip_status=${downloadRes.status} stream_bytes=${streamText.length} firstRunIndex=${firstRunSummary.runIndex} secondRunIndex=${secondRunSummary.runIndex}`,
     )
   }
 
-  console.log(`[api-check] success run=${runId}`)
+  console.log(`[api-check] success run=${firstRunId}`)
 }
 
 async function main() {

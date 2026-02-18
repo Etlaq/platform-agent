@@ -12,37 +12,52 @@ import { RollbackManager } from './rollback/rollbackManager'
 import { GuardedFilesystemBackend } from './backends/guardedFilesystemBackend'
 import { GuardedVirtualBackend } from './backends/guardedVirtualBackend'
 import { E2BSandboxBackend } from './backends/e2bSandboxBackend'
+import { ObservableBackend } from './backends/observableBackend'
 import { createProjectActionsTool } from './tools/projectActions'
 import { createSandboxCmdTool } from './tools/sandboxCmd'
 import { Sandbox } from '@e2b/code-interpreter'
 import { createSandboxWithRetry, runSandboxCommandWithTimeout } from '../common/e2bSandbox'
+import { resolveSandboxAppDir } from '../common/e2b'
 import { appendAgentsNote, ensureAgentsMd, loadAgentsMdTemplate } from './agentsMd'
 import {
   extractSandboxCmd,
   formatLintFailureForModel,
-  isBuildCommand,
-  isLintCommand,
-  isSuccessfulSandboxResult,
   resolveAutoLintMaxPasses,
   resolveAutoLintTimeoutMs,
   shouldAutoLintAfterBuild,
   toSandboxCmdResult,
 } from './autoLint'
 import {
-  BUILD_PHASE_PROMPT_APPENDIX,
   DEFAULT_MEMORY_DIR,
   DEFAULT_ROLLBACK_DIR,
   DEFAULT_SKILLS_DIR,
   DEFAULT_SUBAGENT_PROMPT,
   DEFAULT_SYSTEM_PROMPT,
   E2B_SYSTEM_PROMPT,
-  PLAN_PHASE_PROMPT_APPENDIX,
   ensureDir,
   resolveDir,
   resolveWorkspaceRoot,
 } from './runtime/config'
 import { loadMcpTools } from './runtime/mcp'
 import { createModel, normalizeModelName } from './runtime/modelFactory'
+import type { AgentEventCallback } from './events'
+import { createAgentCallbacks } from './callbacks'
+import { accumulateUsage } from './usage'
+import { initSandboxGit, snapshotSandboxGit } from './sandboxGit'
+import {
+  type PlanSnapshot,
+  type PlanTodoItem,
+  parsePlanSnapshot,
+  buildFallbackPlan,
+  buildPlanPhaseMessage,
+  buildBuildPhaseMessage,
+  asRecord,
+  toNonEmptyString,
+} from './planParser'
+
+// Re-export for external consumers (tests, worker)
+export { parsePlanSnapshot }
+export type { PlanSnapshot, PlanTodoItem }
 
 export interface AgentRunInput {
   prompt: string
@@ -54,10 +69,7 @@ export interface AgentRunInput {
   // When false, do not emit per-token events (useful when the caller isn't streaming).
   emitTokens?: boolean
   signal?: AbortSignal
-  onEvent?: (event: {
-    type: 'token' | 'tool' | 'status'
-    payload: unknown
-  }) => void
+  onEvent?: AgentEventCallback
 }
 
 export class RunAbortedError extends Error {
@@ -87,11 +99,6 @@ function resolvePhaseTimeoutMs(envName: string, fallbackMs: number) {
   return Math.max(30_000, Math.min(2 * 60 * 60_000, Math.trunc(n)))
 }
 
-function buildUserMessage(prompt: string, input?: unknown): string {
-  if (input === undefined) return prompt
-  return `${prompt}\n\nAdditional input:\n${JSON.stringify(input, null, 2)}`
-}
-
 function normalizeContent(content: unknown): string {
   if (typeof content === 'string') return content
   if (Array.isArray(content)) {
@@ -109,19 +116,6 @@ function normalizeContent(content: unknown): string {
   return JSON.stringify(content)
 }
 
-export interface PlanTodoItem {
-  id: string
-  title: string
-  details?: string
-  acceptanceCriteria?: string[]
-}
-
-export interface PlanSnapshot {
-  summary: string
-  todos: PlanTodoItem[]
-  raw: string
-}
-
 const PLAN_MUTATING_PROJECT_ACTIONS = new Set([
   'secrets_sync_env_example',
   'add_dependencies',
@@ -134,28 +128,6 @@ const PLAN_MUTATING_PROJECT_ACTIONS = new Set([
   'validate_env',
   'rollback_run',
 ])
-
-function asRecord(value: unknown): Record<string, unknown> | null {
-  if (!value || typeof value !== 'object' || Array.isArray(value)) return null
-  return value as Record<string, unknown>
-}
-
-function toNonEmptyString(value: unknown): string | null {
-  if (typeof value !== 'string') return null
-  const trimmed = value.trim()
-  return trimmed ? trimmed : null
-}
-
-function toStringArray(value: unknown): string[] {
-  if (!Array.isArray(value)) return []
-  const out: string[] = []
-  for (const item of value) {
-    if (typeof item !== 'string') continue
-    const trimmed = item.trim()
-    if (trimmed) out.push(trimmed)
-  }
-  return out
-}
 
 function parseProjectAction(input: unknown): string | null {
   const obj = asRecord(input)
@@ -209,155 +181,6 @@ function detectPlanMutationAttempt(toolName: string, input: unknown): string | n
   return null
 }
 
-function parseJsonCandidates(raw: string) {
-  const candidates: string[] = []
-  const fenced = /```json\s*([\s\S]*?)```/gi
-  for (let match = fenced.exec(raw); match; match = fenced.exec(raw)) {
-    candidates.push(match[1] ?? '')
-  }
-  const trimmed = raw.trim()
-  if (trimmed.startsWith('{') && trimmed.endsWith('}')) {
-    candidates.push(trimmed)
-  }
-  return candidates
-}
-
-function normalizeTodo(value: unknown, index: number): PlanTodoItem | null {
-  const obj = asRecord(value)
-  if (!obj) return null
-  const title =
-    toNonEmptyString(obj.title) ??
-    toNonEmptyString(obj.task) ??
-    toNonEmptyString(obj.todo) ??
-    toNonEmptyString(obj.name)
-  if (!title) return null
-  const id = toNonEmptyString(obj.id) ?? String(index + 1)
-  const details = toNonEmptyString(obj.details) ?? toNonEmptyString(obj.description) ?? undefined
-  const acceptanceCriteria = toStringArray(obj.acceptanceCriteria)
-  return {
-    id,
-    title,
-    ...(details ? { details } : {}),
-    ...(acceptanceCriteria.length ? { acceptanceCriteria } : {}),
-  }
-}
-
-function parseMarkdownTodos(raw: string): PlanTodoItem[] {
-  const lines = raw.split(/\r?\n/)
-  const todos: PlanTodoItem[] = []
-
-  for (const line of lines) {
-    const trimmed = line.trim()
-    if (!trimmed) continue
-
-    const match = /^[-*]\s+(?:\[\s?\]\s+)?(.+)$/.exec(trimmed) ?? /^(\d+)\.\s+(.+)$/.exec(trimmed)
-    if (!match) continue
-
-    const title = (match[2] ?? match[1] ?? '').trim()
-    if (!title) continue
-    todos.push({
-      id: String(todos.length + 1),
-      title,
-    })
-  }
-
-  return todos
-}
-
-function firstSentence(raw: string) {
-  for (const line of raw.split(/\r?\n/)) {
-    const trimmed = line.trim()
-    if (!trimmed || trimmed.startsWith('#') || trimmed.startsWith('```')) continue
-    return trimmed.length > 240 ? `${trimmed.slice(0, 237)}...` : trimmed
-  }
-  return ''
-}
-
-function buildFallbackPlan(raw: string, prompt: string): PlanSnapshot {
-  const parsedTodos = parseMarkdownTodos(raw)
-  if (parsedTodos.length > 0) {
-    return {
-      summary: firstSentence(raw) || `Execution plan for: ${prompt.slice(0, 120)}`,
-      todos: parsedTodos,
-      raw,
-    }
-  }
-
-  return {
-    summary: firstSentence(raw) || `Execution plan for: ${prompt.slice(0, 120)}`,
-    todos: [
-      {
-        id: '1',
-        title: 'Implement requested change',
-        details: 'No structured todos were parsed from phase 1 output; proceed with best effort.',
-      },
-    ],
-    raw,
-  }
-}
-
-export function parsePlanSnapshot(raw: string): PlanSnapshot | null {
-  const candidates = parseJsonCandidates(raw)
-
-  for (const candidate of candidates) {
-    try {
-      const parsed = JSON.parse(candidate)
-      const obj = asRecord(parsed)
-      if (!obj) continue
-
-      const todosSource = Array.isArray(obj.todos)
-        ? obj.todos
-        : Array.isArray(obj.tasks)
-          ? obj.tasks
-          : Array.isArray(obj.steps)
-            ? obj.steps
-            : []
-      const todos = todosSource
-        .map((item, index) => normalizeTodo(item, index))
-        .filter((item): item is PlanTodoItem => item != null)
-
-      const summary =
-        toNonEmptyString(obj.summary) ??
-        toNonEmptyString(obj.plan) ??
-        toNonEmptyString(obj.overview) ??
-        null
-
-      if (!summary && todos.length === 0) continue
-
-      return {
-        summary: summary ?? `Plan with ${todos.length} todo${todos.length === 1 ? '' : 's'}.`,
-        todos,
-        raw,
-      }
-    } catch {
-      continue
-    }
-  }
-
-  const markdownTodos = parseMarkdownTodos(raw)
-  if (markdownTodos.length === 0) return null
-
-  return {
-    summary: firstSentence(raw) || `Plan with ${markdownTodos.length} todos.`,
-    todos: markdownTodos,
-    raw,
-  }
-}
-
-function buildPlanPhaseMessage(prompt: string, input?: unknown) {
-  return `${buildUserMessage(prompt, input)}\n\n${PLAN_PHASE_PROMPT_APPENDIX}`
-}
-
-function buildBuildPhaseMessage(plan: PlanSnapshot) {
-  return [
-    BUILD_PHASE_PROMPT_APPENDIX,
-    'Approved plan summary:',
-    plan.summary,
-    'Approved todos (JSON):',
-    JSON.stringify(plan.todos, null, 2),
-  ].join('\n\n')
-}
-
 function extractAssistantOutput(messages: unknown[]): string {
   for (let i = messages.length - 1; i >= 0; i--) {
     const msg = messages[i] as { role?: unknown; content?: unknown }
@@ -403,8 +226,14 @@ export async function runAgent(params: AgentRunInput): Promise<{
   ensureDir(rollbackRoot)
 
   const runId = params.runId ?? crypto.randomUUID()
-  const planPhaseTimeoutMs = resolvePhaseTimeoutMs('AGENT_PLAN_PHASE_TIMEOUT_MS', 5 * 60_000)
-  const buildPhaseTimeoutMs = resolvePhaseTimeoutMs('AGENT_BUILD_PHASE_TIMEOUT_MS', 20 * 60_000)
+  const planPhaseTimeoutMs = resolvePhaseTimeoutMs('AGENT_PLAN_PHASE_TIMEOUT_MS', 60 * 60_000)
+  const buildPhaseTimeoutMs = resolvePhaseTimeoutMs('AGENT_BUILD_PHASE_TIMEOUT_MS', 10 * 60 * 60_000)
+  const streamChunkMaxChars = (() => {
+    const raw = process.env.E2B_STREAM_CHUNK_MAX_CHARS
+    const n = raw ? Number(raw) : NaN
+    if (!Number.isFinite(n)) return 2000
+    return Math.max(200, Math.min(20_000, Math.trunc(n)))
+  })()
   const rollback =
     workspaceMode === 'host'
       ? new RollbackManager({
@@ -428,6 +257,9 @@ export async function runAgent(params: AgentRunInput): Promise<{
   let sandboxId: string | undefined
   let touchedFiles: Set<string> | null = null
   let workspaceFsBackend: BackendProtocol | null = null
+  let currentWorkflowPhase: 'plan' | 'build' = 'plan'
+  let sawSuccessfulBuildCommand = false
+  let sawSuccessfulLintCommand = false
 
   const hostBackend =
     workspaceMode === 'host'
@@ -440,14 +272,12 @@ export async function runAgent(params: AgentRunInput): Promise<{
   const e2bBackend = async () => {
     const apiKey = process.env.E2B_API_KEY
     const template = process.env.E2B_TEMPLATE
-    const appDir = process.env.SANDBOX_APP_DIR || '/home/user'
+    const appDir = resolveSandboxAppDir()
     if (!apiKey) throw new Error('E2B_API_KEY is required for workspaceBackend=e2b.')
     if (!template) throw new Error('E2B_TEMPLATE is required for workspaceBackend=e2b.')
 
     const timeoutRaw = process.env.E2B_SANDBOX_TIMEOUT_MS
     const timeoutMs = timeoutRaw ? Number(timeoutRaw) : NaN
-    // E2B's SDK default sandbox timeout is too short for long-running installs/builds.
-    // If not configured, use a safer default to prevent sandboxes from closing mid-run.
     const effectiveTimeoutMs = Number.isFinite(timeoutMs) && timeoutMs > 0 ? timeoutMs : 2 * 60 * 60_000
     sandbox = await createSandboxWithRetry(
       template,
@@ -455,34 +285,7 @@ export async function runAgent(params: AgentRunInput): Promise<{
     )
     sandboxId = (sandbox as any).sandboxId
 
-    // Ensure each sandbox ZIP contains a usable git repo + commit history (used by benchmark harness).
-    // Best-effort: never fail the run if git is unavailable in the sandbox.
-    try {
-      const git = (sandbox as unknown as { git?: unknown }).git
-      if (git && typeof (git as { init?: unknown }).init === 'function') {
-        const gitApi = git as {
-          init: (path: string) => Promise<unknown>
-          configureUser?: (name: string, email: string, opts?: { scope?: string; path?: string }) => Promise<unknown>
-          add?: (path: string, opts?: { all?: boolean }) => Promise<unknown>
-          commit?: (path: string, message: string, opts?: { allowEmpty?: boolean }) => Promise<unknown>
-        }
-        const authorName = process.env.AGENT_GIT_AUTHOR_NAME || 'Etlaq Agent'
-        const authorEmail = process.env.AGENT_GIT_AUTHOR_EMAIL || 'agent@local'
-
-        await gitApi.init(appDir).catch(() => undefined)
-        if (typeof gitApi.configureUser === 'function') {
-          await gitApi.configureUser(authorName, authorEmail, { scope: 'local', path: appDir }).catch(() => undefined)
-        }
-        if (typeof gitApi.add === 'function') {
-          await gitApi.add(appDir, { all: true }).catch(() => undefined)
-        }
-        if (typeof gitApi.commit === 'function') {
-          await gitApi.commit(appDir, 'chore: initial snapshot', { allowEmpty: true }).catch(() => undefined)
-        }
-      }
-    } catch {
-      // ignore
-    }
+    await initSandboxGit(sandbox, appDir)
 
     const fsBackend = new E2BSandboxBackend(sandbox, { rootDir: appDir })
     const guarded = new GuardedVirtualBackend(fsBackend)
@@ -509,11 +312,50 @@ export async function runAgent(params: AgentRunInput): Promise<{
   const tools: any[] = []
   tools.push(...mcpTools)
 
+  const emitSandboxStreamChunk = (params2: {
+    cmd: string
+    stream: 'stdout' | 'stderr'
+    chunk: string
+    internal?: boolean
+  }) => {
+    if (params.signal?.aborted) return
+    const raw = params2.chunk
+    if (typeof raw !== 'string' || raw.length === 0) return
+
+    for (let i = 0; i < raw.length; i += streamChunkMaxChars) {
+      const chunk = raw.slice(i, i + streamChunkMaxChars)
+      if (!chunk) continue
+      params.onEvent?.({
+        type: 'tool',
+        payload: {
+          phase: 'stream',
+          runPhase: currentWorkflowPhase,
+          tool: 'sandbox_cmd',
+          cmd: params2.cmd,
+          stream: params2.stream,
+          internal: params2.internal ?? false,
+          chunk,
+        },
+      })
+    }
+  }
+
   if (workspaceMode === 'e2b') {
     workspaceFsBackend = await e2bBackend()
-    const appDir = process.env.SANDBOX_APP_DIR || '/home/user'
+    const appDir = resolveSandboxAppDir()
     if (sandbox) {
-      tools.push(createSandboxCmdTool({ sandbox, defaultCwd: appDir }) as any)
+      tools.push(
+        createSandboxCmdTool({
+          sandbox,
+          defaultCwd: appDir,
+          onStdout: ({ cmd, chunk }) => {
+            emitSandboxStreamChunk({ cmd, stream: 'stdout', chunk })
+          },
+          onStderr: ({ cmd, chunk }) => {
+            emitSandboxStreamChunk({ cmd, stream: 'stderr', chunk })
+          },
+        }) as any
+      )
     }
   } else {
     workspaceFsBackend = hostBackend!
@@ -568,6 +410,14 @@ export async function runAgent(params: AgentRunInput): Promise<{
     model: resolvedModelName,
   }
 
+  // Wrap workspace backend with ObservableBackend to emit file_op events
+  const observedWorkspace = workspaceFsBackend
+    ? new ObservableBackend(workspaceFsBackend, {
+        onFileOp: (payload) => params.onEvent?.({ type: 'file_op', payload }),
+        getPhase: () => currentWorkflowPhase,
+      })
+    : null
+
   const backendFactory = (runtime: unknown) => {
     const baseBackend = new StateBackend(runtime as any)
     const wrappedBackend = {
@@ -582,162 +432,34 @@ export async function runAgent(params: AgentRunInput): Promise<{
       downloadFiles: (baseBackend as any).downloadFiles?.bind(baseBackend),
     }
 
-    const workspaceBackend = workspaceMode === 'host'
-      ? hostBackend!
-      : (touchedFiles ? (null as any) : null)
-
     return new CompositeBackend(wrappedBackend as any, {
       '/memories/': memoryBackend,
       '/skills/': skillsBackend,
-      '/': workspaceFsBackend as any,
+      '/': (observedWorkspace ?? workspaceFsBackend) as any,
     })
   }
+
+  const { callbacks } = createAgentCallbacks({
+    onEvent: params.onEvent,
+    signal: params.signal,
+    emitTokens: params.emitTokens !== false,
+    runId,
+    getWorkflowPhase: () => currentWorkflowPhase,
+    getWorkspaceFsBackend: () => workspaceFsBackend,
+    onBuildCommandSuccess: () => { sawSuccessfulBuildCommand = true },
+    onLintCommandSuccess: () => { sawSuccessfulLintCommand = true },
+    detectPlanMutationAttempt,
+  })
 
   const agent = createDeepAgent({
     model,
     tools: filteredTools as any,
     systemPrompt: workspaceMode === 'e2b' ? E2B_SYSTEM_PROMPT : DEFAULT_SYSTEM_PROMPT,
     backend: backendFactory,
-    // Inject project-level instructions when present.
-    // This uses the AGENTS.md spec supported by DeepAgents' memory middleware.
     memory: ['/AGENTS.md'],
     skills: ['/skills/'],
     subagents: subagents as any,
   } as any)
-
-  let lastAppendedNote = ''
-  let currentToolName = ''
-  let currentToolInput = ''
-  let currentSandboxCmd: string | null = null
-  let currentWorkflowPhase: 'plan' | 'build' = 'plan'
-  let sawSuccessfulBuildCommand = false
-  let sawSuccessfulLintCommand = false
-  const safeStringify = (value: unknown) => {
-    try {
-      return JSON.stringify(value ?? null)
-    } catch {
-      return String(value)
-    }
-  }
-  const deriveHint = (toolName: string, toolInput: string, out?: any, errMsg?: string) => {
-    const input = toolInput.toLowerCase()
-    const stderr = typeof out?.stderr === 'string' ? out.stderr.toLowerCase() : ''
-    const error = typeof out?.error === 'string' ? out.error.toLowerCase() : ''
-    const em = (errMsg ?? '').toLowerCase()
-
-    if (toolName === 'sandbox_cmd' && input.includes('bun run dev')) {
-      if (stderr.includes('eaddrinuse') || error.includes('eaddrinuse') || em.includes('eaddrinuse')) {
-        return 'E2B Next.js templates often already run the dev server on port 3000; reuse it instead of starting a second dev server.'
-      }
-      if (stderr.includes('already') && stderr.includes('running')) {
-        return 'Dev server may already be running in the sandbox; reuse it.'
-      }
-    }
-
-    return null
-  }
-  const callbacks = [
-    {
-      handleLLMNewToken(token: string) {
-        if (params.signal?.aborted) return
-        if (params.emitTokens !== false) {
-          params.onEvent?.({ type: 'token', payload: { token } })
-        }
-      },
-      handleToolStart(tool: { name?: string }, input: unknown) {
-        if (params.signal?.aborted) return
-        currentToolName = tool?.name ?? 'tool'
-        currentToolInput = typeof input === 'string' ? input : safeStringify(input)
-        currentSandboxCmd =
-          currentToolName === 'sandbox_cmd' ? extractSandboxCmd(currentToolInput) : null
-        params.onEvent?.({
-          type: 'tool',
-          payload: {
-            phase: 'start',
-            runPhase: currentWorkflowPhase,
-            tool: tool?.name ?? 'tool',
-            input,
-          },
-        })
-
-        if (currentWorkflowPhase === 'plan') {
-          const mutation = detectPlanMutationAttempt(currentToolName, input)
-          if (mutation) {
-            params.onEvent?.({
-              type: 'status',
-              payload: {
-                status: 'plan_policy_warning',
-                runId,
-                phase: 'plan',
-                tool: currentToolName,
-                detail: mutation,
-              },
-            })
-          }
-        }
-      },
-      handleToolEnd(output: unknown, runId: string) {
-        if (params.signal?.aborted) return
-        params.onEvent?.({
-          type: 'tool',
-          payload: { phase: 'end', runPhase: currentWorkflowPhase, runId, output },
-        })
-
-        if (currentWorkflowPhase === 'build' && currentToolName === 'sandbox_cmd' && currentSandboxCmd) {
-          if (isBuildCommand(currentSandboxCmd) && isSuccessfulSandboxResult(output)) {
-            sawSuccessfulBuildCommand = true
-          }
-          if (isLintCommand(currentSandboxCmd) && isSuccessfulSandboxResult(output)) {
-            sawSuccessfulLintCommand = true
-          }
-        }
-
-        // Auto-append "never make this mistake again" notes when a tool returns a structured failure.
-        const out = output as any
-        const isFailure = out && typeof out === 'object' && (out.ok === false || out.error)
-        if (workspaceFsBackend && isFailure) {
-          const hint = deriveHint(currentToolName, currentToolInput, out)
-          const msg = [
-            currentToolName ? `tool=${currentToolName}` : null,
-            out.exitCode != null ? `exitCode=${String(out.exitCode)}` : null,
-            out.error ? String(out.error) : null,
-            out.stderr ? String(out.stderr).slice(0, 200) : null,
-            currentToolInput ? `input=${currentToolInput.slice(0, 200)}` : null,
-            hint ? `hint=${hint}` : null,
-          ]
-            .filter(Boolean)
-            .join(' | ')
-          if (msg && msg !== lastAppendedNote) {
-            lastAppendedNote = msg
-            void appendAgentsNote({ backend: workspaceFsBackend, note: msg }).catch(() => {})
-          }
-        }
-      },
-      handleToolError(error: Error, runId: string) {
-        if (params.signal?.aborted) return
-        params.onEvent?.({
-          type: 'tool',
-          payload: { phase: 'error', runPhase: currentWorkflowPhase, runId, error: error.message },
-        })
-
-        if (workspaceFsBackend) {
-          const hint = deriveHint(currentToolName, currentToolInput, undefined, error.message)
-          const msg = [
-            currentToolName ? `tool=${currentToolName}` : null,
-            `tool_error: ${error.message}`,
-            currentToolInput ? `input=${currentToolInput.slice(0, 200)}` : null,
-            hint ? `hint=${hint}` : null,
-          ]
-            .filter(Boolean)
-            .join(' | ')
-          if (msg !== lastAppendedNote) {
-            lastAppendedNote = msg
-            void appendAgentsNote({ backend: workspaceFsBackend, note: msg }).catch(() => {})
-          }
-        }
-      },
-    },
-  ]
 
   const toolSchemaRetriesRaw = process.env.AGENT_TOOL_SCHEMA_RETRIES
   const toolSchemaRetriesNum = toolSchemaRetriesRaw ? Number(toolSchemaRetriesRaw) : NaN
@@ -830,10 +552,19 @@ export async function runAgent(params: AgentRunInput): Promise<{
       }
     }
 
-    const cwd = process.env.SANDBOX_APP_DIR || '/home/user'
+    const cwd = resolveSandboxAppDir()
     const timeoutMs = resolveAutoLintTimeoutMs(process.env.AUTO_LINT_TIMEOUT_MS)
     try {
-      const result = await runSandboxCommandWithTimeout(sandbox, cmd, { cwd, timeoutMs })
+      const result = await runSandboxCommandWithTimeout(sandbox, cmd, {
+        cwd,
+        timeoutMs,
+        onStdout: (chunk) => {
+          emitSandboxStreamChunk({ cmd, stream: 'stdout', chunk, internal: true })
+        },
+        onStderr: (chunk) => {
+          emitSandboxStreamChunk({ cmd, stream: 'stderr', chunk, internal: true })
+        },
+      })
       throwIfAborted(params.signal)
       return toSandboxCmdResult({
         ok: true,
@@ -873,14 +604,11 @@ export async function runAgent(params: AgentRunInput): Promise<{
     ]
     let planSnapshot: PlanSnapshot | undefined
 
+    // --- Plan phase ---
     currentWorkflowPhase = 'plan'
     params.onEvent?.({
       type: 'status',
-      payload: {
-        status: 'phase_started',
-        runId,
-        phase: 'plan',
-      },
+      payload: { status: 'phase_started', runId, phase: 'plan' },
     })
     messages = await invokeWithSchemaRetry(messages, 'plan')
 
@@ -889,11 +617,7 @@ export async function runAgent(params: AgentRunInput): Promise<{
 
     params.onEvent?.({
       type: 'status',
-      payload: {
-        status: 'phase_completed',
-        runId,
-        phase: 'plan',
-      },
+      payload: { status: 'phase_completed', runId, phase: 'plan' },
     })
     params.onEvent?.({
       type: 'status',
@@ -907,41 +631,27 @@ export async function runAgent(params: AgentRunInput): Promise<{
     })
     params.onEvent?.({
       type: 'status',
-      payload: {
-        status: 'phase_transition',
-        runId,
-        from: 'plan',
-        to: 'build',
-      },
+      payload: { status: 'phase_transition', runId, from: 'plan', to: 'build' },
     })
 
+    // --- Build phase ---
     messages = [
       ...messages,
-      {
-        role: 'user',
-        content: buildBuildPhaseMessage(planSnapshot),
-      },
+      { role: 'user', content: buildBuildPhaseMessage(planSnapshot) },
     ]
 
     currentWorkflowPhase = 'build'
     params.onEvent?.({
       type: 'status',
-      payload: {
-        status: 'phase_started',
-        runId,
-        phase: 'build',
-      },
+      payload: { status: 'phase_started', runId, phase: 'build' },
     })
     messages = await invokeWithSchemaRetry(messages, 'build')
     params.onEvent?.({
       type: 'status',
-      payload: {
-        status: 'phase_completed',
-        runId,
-        phase: 'build',
-      },
+      payload: { status: 'phase_completed', runId, phase: 'build' },
     })
 
+    // --- Optional auto-lint ---
     if (
       shouldAutoLintAfterBuild({
         workspaceMode,
@@ -1021,42 +731,9 @@ export async function runAgent(params: AgentRunInput): Promise<{
       }
     }
 
+    // --- Accumulate usage and return ---
     const t1 = Date.now()
-
-    const { usage, cachedInputTokens, reasoningOutputTokens } = (() => {
-      let inputTokens = 0
-      let outputTokens = 0
-      let totalTokens = 0
-      let cachedInputTokens = 0
-      let reasoningOutputTokens = 0
-
-      for (const m of messages as any[]) {
-        const u = (m as any)?.usage_metadata ?? (m as any)?.usageMetadata
-        if (!u) continue
-        const i = Number(u.input_tokens ?? u.inputTokens ?? 0)
-        const o = Number(u.output_tokens ?? u.outputTokens ?? 0)
-        const t = Number(u.total_tokens ?? u.totalTokens ?? 0)
-        const inputDetails = (u.input_token_details ?? u.inputTokenDetails) as any
-        const outputDetails = (u.output_token_details ?? u.outputTokenDetails) as any
-        const cached = Number(inputDetails?.cache_read ?? inputDetails?.cacheRead ?? 0)
-        const reasoning = Number(outputDetails?.reasoning ?? 0)
-        if (Number.isFinite(i)) inputTokens += i
-        if (Number.isFinite(o)) outputTokens += o
-        if (Number.isFinite(t)) totalTokens += t
-        if (Number.isFinite(cached)) cachedInputTokens += cached
-        if (Number.isFinite(reasoning)) reasoningOutputTokens += reasoning
-      }
-
-      if (totalTokens === 0 && (inputTokens > 0 || outputTokens > 0)) {
-        totalTokens = inputTokens + outputTokens
-      }
-
-      return {
-        usage: { inputTokens, outputTokens, totalTokens },
-        cachedInputTokens,
-        reasoningOutputTokens,
-      }
-    })()
+    const { usage, cachedInputTokens, reasoningOutputTokens } = accumulateUsage(messages)
     const output = extractAssistantOutput(messages)
 
     const maxOutput = Number(process.env.MAX_OUTPUT_CHARS || 0)
@@ -1084,7 +761,7 @@ export async function runAgent(params: AgentRunInput): Promise<{
               sandboxId,
               downloadPath: sandboxId ? `/v1/sandbox/${sandboxId}/download.zip` : null,
               legacyDownloadPath: sandboxId ? `/sandbox/${sandboxId}/download.zip` : null,
-              touchedFiles: touchedFiles ? Array.from(touchedFiles.values()) : [],
+              touchedFiles: touchedFiles ? Array.from(touchedFiles) : [],
               lintPassed: sawSuccessfulBuildCommand ? sawSuccessfulLintCommand : null,
               usage,
               cachedInputTokens,
@@ -1110,43 +787,15 @@ export async function runAgent(params: AgentRunInput): Promise<{
       durationMs: t1 - t0,
     }
   } catch (err) {
-    // User-canceled runs should not produce "never make this mistake again" notes.
     if (workspaceFsBackend && !isRunAbortedError(err)) {
       const msg = `run_error: ${err instanceof Error ? err.message : String(err)}`
       void appendAgentsNote({ backend: workspaceFsBackend, note: msg }).catch(() => {})
     }
     throw err
   } finally {
-    // Best-effort "final snapshot" commit for E2B workspace zips (even on cancel/error/abort).
-    // This allows external harnesses to validate version control is working inside the downloaded zip.
     if (workspaceMode === 'e2b' && sandbox) {
-      try {
-        const appDir = process.env.SANDBOX_APP_DIR || '/home/user'
-        const git = (sandbox as unknown as { git?: unknown }).git
-        if (git && typeof (git as { init?: unknown }).init === 'function') {
-          const gitApi = git as {
-            init: (path: string) => Promise<unknown>
-            configureUser?: (name: string, email: string, opts?: { scope?: string; path?: string }) => Promise<unknown>
-            add?: (path: string, opts?: { all?: boolean }) => Promise<unknown>
-            commit?: (path: string, message: string, opts?: { allowEmpty?: boolean }) => Promise<unknown>
-          }
-          const authorName = process.env.AGENT_GIT_AUTHOR_NAME || 'Etlaq Agent'
-          const authorEmail = process.env.AGENT_GIT_AUTHOR_EMAIL || 'agent@local'
-
-          await gitApi.init(appDir).catch(() => undefined)
-          if (typeof gitApi.configureUser === 'function') {
-            await gitApi.configureUser(authorName, authorEmail, { scope: 'local', path: appDir }).catch(() => undefined)
-          }
-          if (typeof gitApi.add === 'function') {
-            await gitApi.add(appDir, { all: true }).catch(() => undefined)
-          }
-          if (typeof gitApi.commit === 'function') {
-            await gitApi.commit(appDir, `chore: snapshot run ${runId}`, { allowEmpty: true }).catch(() => undefined)
-          }
-        }
-      } catch {
-        // ignore
-      }
+      const appDir = resolveSandboxAppDir()
+      await snapshotSandboxGit(sandbox, appDir, runId)
     }
 
     if (mcpClient) {

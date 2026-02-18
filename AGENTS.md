@@ -27,8 +27,8 @@ Encore.ts · Bun · TypeScript · LangChain/DeepAgents · E2B sandbox · Postgre
 
 ## API Contract
 - v1 JSON endpoints use envelope: `{ ok, data, meta: { apiVersion: "v1", ts } }`
-- SSE endpoints (`/v1/runs/:id/stream` and streamed `POST /v1/runs`) keep raw SSE event format
-- Legacy routes still return pre-v1 raw JSON where applicable
+- SSE endpoints (`/v1/projects/:projectId/runs/:id/stream`) keep raw SSE event format
+- Run-first routes (`/v1/runs/*`) are removed; use project-scoped routes only.
 
 ## File Structure
 ```
@@ -45,7 +45,7 @@ agent/       # runtime orchestration (plan/build phases)
 ```
 
 ## Key Runtime Flow
-1. `POST /v1/runs` queues run + job, optionally opens SSE stream.
+1. `POST /v1/projects/:projectId/runs` (or `POST /v1/projects/:projectId/messages`) queues run + job.
 2. Worker claims queued job, executes `runAgent` in plan/build phases.
 3. Events persist in `events` table and stream to clients.
 4. Finalization updates run/job status and usage/duration/provider/model metadata.

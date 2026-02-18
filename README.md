@@ -33,25 +33,37 @@ Detailed request/worker lifecycle and troubleshooting are documented in `docs/ap
 | GET | `/v1` | Versioned root info |
 | GET | `/v1/health` | Health check |
 | GET | `/v1/capabilities` | Supported actions and constraints |
-| POST | `/v1/runs` | Create (or idempotently resolve) an async run |
-| GET | `/v1/runs/:id` | Run summary (JSON envelope) |
-| GET | `/v1/runs/:id/stream` | SSE event stream for a run |
-| POST | `/v1/runs/:id/cancel` | Cancel a running job |
-| GET | `/v1/runs/:id/download.zip` | Download run workspace zip (run-specific app files) |
+| POST | `/v1/projects` | Create (or idempotently resolve) a project |
+| GET | `/v1/projects` | List projects |
+| GET | `/v1/projects/:projectId` | Project summary |
+| POST | `/v1/projects/:projectId/runs` | Create (or idempotently resolve) an async run (becomes latest writable run) |
+| POST | `/v1/projects/:projectId/messages` | Chat-style project message; creates the next latest writable run |
+| GET | `/v1/projects/:projectId/runs` | List runs for a project (latest first) |
+| GET | `/v1/projects/:projectId/runs/:id` | Run summary (JSON envelope) |
+| GET | `/v1/projects/:projectId/runs/:id/messages` | Persisted message list for that run |
+| GET | `/v1/projects/:projectId/runs/:id/stream` | SSE event stream for a run |
+| POST | `/v1/projects/:projectId/runs/:id/cancel` | Cancel latest writable run |
+| GET | `/v1/projects/:projectId/runs/:id/download.zip` | Download run workspace zip (run-specific app files) |
 
 Older workflow/sandbox/metrics endpoints are now internal-only and no longer part of the public client contract.
 
-### Creating a Run
+### Creating a Project and Run
 
 ```bash
-curl -X POST http://localhost:4000/v1/runs \
+curl -X POST http://localhost:4000/v1/projects \
+  -H "X-Agent-Api-Key: $AGENT_API_KEY" \
+  -H "Content-Type: application/json" \
+  -d '{"id":"default","name":"Default Project"}'
+
+curl -X POST http://localhost:4000/v1/projects/default/runs \
   -H "X-Agent-Api-Key: $AGENT_API_KEY" \
   -H "Idempotency-Key: run-$(date +%s)" \
   -H "Content-Type: application/json" \
-  -d '{"projectId":"default","prompt":"Add a dark mode toggle","stream":false,"workspaceBackend":"e2b"}'
+  -d '{"prompt":"Add a dark mode toggle","stream":false,"workspaceBackend":"e2b"}'
 ```
 
-The response includes a run `id`. Stream events with `GET /v1/runs/:id/stream` (SSE).
+The response includes a run `id`. Stream events with `GET /v1/projects/:projectId/runs/:id/stream` (SSE).
+For chat-like continuation, call `POST /v1/projects/:projectId/messages` with `content`.
 
 `workspaceBackend` can be `host` or `e2b`. If omitted, backend default resolution is:
 
@@ -73,10 +85,11 @@ After successful host runs, workspace changes are staged and committed to Git au
 Reliability semantics:
 
 - Run execution is async and continues even if client/network disconnects.
-- Reconnect with `GET /v1/runs/:id/stream` and `Last-Event-ID` for replay.
-- `POST /v1/runs` requires `Idempotency-Key` to prevent duplicate run creation on retried client requests.
+- Reconnect with `GET /v1/projects/:projectId/runs/:id/stream` and `Last-Event-ID` for replay.
+- `POST /v1/projects/:projectId/runs` and `POST /v1/projects/:projectId/messages` require `Idempotency-Key` to prevent duplicate creation on retried requests.
 - Worker retries, stale-run requeue, and sandbox cleanup are managed internally by backend workers.
 - For `e2b` runs, worker stores a run-specific workspace zip artifact before sandbox cleanup.
+- For `e2b` runs, command stdout/stderr is streamed in real time as SSE `tool` events (`phase: "stream"`).
 
 ## Services
 
@@ -112,14 +125,14 @@ The `agent/` directory contains the runtime engine (not an Encore service) — o
 | Variable | Description |
 |----------|-------------|
 | `AGENT_API_KEY` | Auth key for control-plane endpoints |
-| `OPENAI_API_KEY` / `ANTHROPIC_API_KEY` / `XAI_API_KEY` / `ZAI_API_KEY` | At least one LLM provider key |
+| `OPENAI_API_KEY` / `ANTHROPIC_API_KEY` / `GOOGLE_API_KEY` / `GROQ_API_KEY` / `MISTRAL_API_KEY` / `COHERE_API_KEY` / `XAI_API_KEY` / `ZAI_API_KEY` / `OPENROUTER_API_KEY` / `KIMI_API_KEY` / `MOONSHOT_API_KEY` / `QWEN_API_KEY` / `ALIBABA_API_KEY` / `DASHSCOPE_API_KEY` | At least one LLM provider key |
 
 ### Optional
 
 | Variable | Description |
 |----------|-------------|
 | `DATABASE_URL` | PostgreSQL connection (enables persistence; without it, runs are in-memory) |
-| `AGENT_PROVIDER` | Force a specific provider (`openai`, `anthropic`, `xai`, `zai`) |
+| `AGENT_PROVIDER` | Force a specific provider (`openai`, `anthropic`, `google`, `groq`, `mistral`, `cohere`, `xai`, `zai`, `openrouter`, `kimi`, `qwen`) |
 | `AGENT_MODEL` | Override default model name |
 | `WORKSPACE_ROOT` | Workspace path (default: `/workspace` or cwd) |
 | `AGENT_WORKSPACE_BACKEND` / `WORKSPACE_BACKEND` | Default workspace backend (`host` or `e2b`) |
@@ -132,6 +145,17 @@ The `agent/` directory contains the runtime engine (not an Encore service) — o
 | `AGENT_GIT_COMMITTER_NAME` / `AGENT_GIT_COMMITTER_EMAIL` | Optional Git committer identity for auto-commits |
 | `LANGSMITH_TRACING` | Enable LangSmith tracing (`true`) |
 | `LANGSMITH_API_KEY` | LangSmith API key |
+| `GOOGLE_API_KEY` / `GOOGLE_MODEL` / `GOOGLE_BASE_URL` | Optional Google provider config (`AGENT_PROVIDER=google`) |
+| `GROQ_API_KEY` / `GROQ_MODEL` / `GROQ_BASE_URL` | Optional Groq provider config (`AGENT_PROVIDER=groq`) |
+| `MISTRAL_API_KEY` / `MISTRAL_MODEL` / `MISTRAL_BASE_URL` | Optional Mistral provider config (`AGENT_PROVIDER=mistral`) |
+| `COHERE_API_KEY` / `COHERE_MODEL` | Optional Cohere provider config (`AGENT_PROVIDER=cohere`) |
+| `OPENROUTER_API_KEY` / `OPENROUTER_MODEL` / `OPENROUTER_BASE_URL` | Optional OpenRouter provider config (`AGENT_PROVIDER=openrouter`) |
+| `OPENROUTER_SITE_URL` / `OPENROUTER_APP_NAME` | Optional OpenRouter attribution headers (`HTTP-Referer`, `X-Title`) |
+| `KIMI_API_KEY` / `KIMI_MODEL` / `KIMI_BASE_URL` | Optional Kimi provider config (`AGENT_PROVIDER=kimi`) |
+| `MOONSHOT_API_KEY` / `MOONSHOT_MODEL` / `MOONSHOT_BASE_URL` | Compatibility aliases for Kimi env vars |
+| `QWEN_API_KEY` / `QWEN_MODEL` / `QWEN_BASE_URL` | Optional Qwen provider config (`AGENT_PROVIDER=qwen`) |
+| `ALIBABA_API_KEY` / `ALIBABA_MODEL` / `ALIBABA_BASE_URL` | Compatibility aliases for Qwen env vars |
+| `DASHSCOPE_API_KEY` / `DASHSCOPE_MODEL` / `DASHSCOPE_BASE_URL` | Compatibility aliases for Qwen env vars |
 
 ## Development
 

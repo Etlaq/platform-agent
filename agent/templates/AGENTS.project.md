@@ -48,7 +48,10 @@ lib/mongodb.ts, utils.ts, env.ts
 - Error handling: try/catch with `console.error` + `toast.error()`
 - Touch targets: minimum 44px
 
-## Notes (Append Only)
+## Agent Notes
+
+Write here when you find a recurring fix or gotcha — so you never get stuck on the same thing twice.
+
 <!-- AGENTS_NOTES_START -->
 <!-- AGENTS_NOTES_END -->
 

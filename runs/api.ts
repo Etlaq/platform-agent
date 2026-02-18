@@ -1,4 +1,4 @@
-import { api, APIError } from 'encore.dev/api'
+import { api, APIError, type Query } from 'encore.dev/api'
 import { secret } from 'encore.dev/config'
 import { randomUUID } from 'node:crypto'
 import { type IncomingMessage, type ServerResponse } from 'node:http'
@@ -14,19 +14,60 @@ import { buildSandboxZipBuffer } from '../common/sandboxZip'
 import {
   cancelJobByRunId,
   cancelRun,
-  createQueuedRun,
-  getRun,
+  createProject,
+  createProjectRun,
+  getLatestWritableRun,
+  getProject,
+  getRunInProject,
   insertEventWithNextSeq,
   listArtifacts,
   listEventsAfter,
+  listProjectRunMessages,
+  listProjectRuns,
+  listProjects,
+  type ProjectRecord,
+  type RunRecord,
 } from '../data/db'
 import { getBinaryObject } from '../storage/storage'
 import { enqueueRun } from '../worker/queue'
 
 import '../auth/auth'
 
-interface CreateRunRequest {
-  projectId?: string
+interface CreateProjectRequest {
+  id?: string
+  name?: string
+}
+
+interface CreateProjectResponse {
+  id: string
+  name: string
+  latestRunId: string | null
+  createdAt: string
+  updatedAt: string
+  created: boolean
+}
+
+interface ProjectPathRequest {
+  projectId: string
+}
+
+interface ListProjectsRequest {
+  limit?: Query<number>
+  offset?: Query<number>
+}
+
+interface ListProjectRunsRequest {
+  projectId: string
+  limit?: Query<number>
+  offset?: Query<number>
+}
+
+interface ProjectRunPathRequest {
+  projectId: string
+  id: string
+}
+
+interface CreateProjectRunRequest {
   prompt?: string
   input?: unknown
   stream?: boolean
@@ -35,19 +76,50 @@ interface CreateRunRequest {
   workspaceBackend?: string
 }
 
-interface CreateRunResponse {
+interface CreateProjectRunResponse {
   id: string
+  projectId: string
   status: string
+  runIndex: number
+  writable: boolean
+  parentRunId: string | null
   created: boolean
 }
 
-interface RunPathRequest {
-  id: string
+interface CreateProjectMessageRequest {
+  content?: string
+  input?: unknown
+  stream?: boolean
+  provider?: string
+  model?: string
+  workspaceBackend?: string
+}
+
+interface CreateProjectMessageResponse {
+  run: CreateProjectRunResponse
+  message: {
+    role: string
+    content: string
+    createdAt: string
+  }
+}
+
+interface ProjectRunMessageResponse {
+  id: number
+  projectId: string
+  runId: string
+  role: string
+  content: string
+  input: unknown | null
+  createdAt: string
 }
 
 interface RunSummaryResponse {
   id: string
   projectId: string
+  runIndex: number
+  writable: boolean
+  parentRunId: string | null
   status: string
   createdAt: string
   startedAt: string | null
@@ -84,8 +156,10 @@ interface RunSummaryResponse {
 
 interface CancelRunResponse {
   id: string
+  projectId: string
   status: string
   cancelled: boolean
+  writable: boolean
 }
 
 type WorkspaceZipEntry = {
@@ -153,6 +227,10 @@ function writeSSE(
 
 function streamRunTerminal(status: string) {
   return status === 'completed' || status === 'error' || status === 'cancelled'
+}
+
+function parseProjectId(req: IncomingMessage) {
+  return parsePathPartAfter(req, 'projects')
 }
 
 function parseRunId(req: IncomingMessage) {
@@ -283,7 +361,7 @@ function writeRouteError(
   writeApiError(res, status, code, message)
 }
 
-async function streamRunEvents(req: IncomingMessage, runId: string, res: ServerResponse) {
+async function streamRunEvents(req: IncomingMessage, projectId: string, runId: string, res: ServerResponse) {
   res.statusCode = 200
   res.setHeader('content-type', 'text/event-stream')
   res.setHeader('cache-control', 'no-store')
@@ -347,7 +425,7 @@ async function streamRunEvents(req: IncomingMessage, runId: string, res: ServerR
         lastId = event.id
       }
 
-      const run = await getRun(runId)
+      const run = await getRunInProject(projectId, runId)
       if (!run || streamRunTerminal(run.status)) {
         clearInterval(pollInterval)
         clearInterval(heartbeat)
@@ -370,10 +448,13 @@ async function streamRunEvents(req: IncomingMessage, runId: string, res: ServerR
   })
 }
 
-function toSummary(run: NonNullable<Awaited<ReturnType<typeof getRun>>>): RunSummaryResponse {
+function toSummary(run: RunRecord): RunSummaryResponse {
   return {
     id: run.id,
     projectId: run.projectId,
+    runIndex: run.runIndex,
+    writable: run.writable,
+    parentRunId: run.parentRunId,
     status: run.status,
     createdAt: run.createdAt,
     startedAt: run.startedAt,
@@ -413,18 +494,92 @@ function toSummary(run: NonNullable<Awaited<ReturnType<typeof getRun>>>): RunSum
   }
 }
 
-async function handleCreateRunRequest(req: IncomingMessage, res: ServerResponse) {
-  let payload: CreateRunRequest
+function toProjectResponse(project: ProjectRecord, created: boolean): CreateProjectResponse {
+  return {
+    id: project.id,
+    name: project.name,
+    latestRunId: project.latestRunId,
+    createdAt: project.createdAt,
+    updatedAt: project.updatedAt,
+    created,
+  }
+}
+
+function toCreateRunResponse(run: RunRecord, created: boolean): CreateProjectRunResponse {
+  return {
+    id: run.id,
+    projectId: run.projectId,
+    status: run.status,
+    runIndex: run.runIndex,
+    writable: run.writable,
+    parentRunId: run.parentRunId,
+    created,
+  }
+}
+
+function buildPromptFromMessage(params: {
+  content: string
+  previous: RunRecord | null
+}) {
+  if (!params.previous) {
+    return params.content
+  }
+
+  const sections: string[] = [
+    'Continue work for this project based on the latest state and user request.',
+    `Previous run id: ${params.previous.id}`,
+    `Previous run prompt:\n${params.previous.prompt}`,
+  ]
+
+  if (params.previous.output?.trim()) {
+    sections.push(`Previous run output:\n${params.previous.output}`)
+  }
+
+  sections.push(`User message:\n${params.content}`)
+  return sections.join('\n\n')
+}
+
+async function ensureProjectExists(projectId: string) {
+  const project = await getProject(projectId)
+  if (!project) throw APIError.notFound('project not found')
+  return project
+}
+
+async function handleCreateProjectRequest(req: IncomingMessage, res: ServerResponse) {
+  let payload: CreateProjectRequest
   try {
-    payload = await parseJsonBody<CreateRunRequest>(req)
+    payload = await parseJsonBody<CreateProjectRequest>(req)
   } catch {
     writeRouteError(res, 400, 'Invalid JSON payload', 'invalid_json')
     return
   }
 
-  const projectId = payload.projectId?.trim()
+  const normalizedId = payload.id?.trim() || randomUUID()
+  if (!normalizedId) {
+    writeRouteError(res, 400, 'project id is required', 'invalid_argument')
+    return
+  }
+
+  const upsert = await createProject({
+    id: normalizedId,
+    name: payload.name,
+  })
+
+  writeApiSuccess(res, 200, toProjectResponse(upsert.project, upsert.created))
+}
+
+async function handleCreateProjectRunRequest(req: IncomingMessage, res: ServerResponse) {
+  const projectId = parseProjectId(req)
   if (!projectId) {
-    writeRouteError(res, 400, 'projectId is required', 'invalid_argument')
+    writeRouteError(res, 400, 'project id is required', 'invalid_argument')
+    return
+  }
+
+  let payload: CreateProjectRunRequest
+  try {
+    payload = await parseJsonBody<CreateProjectRunRequest>(req)
+  } catch {
+    writeRouteError(res, 400, 'Invalid JSON payload', 'invalid_json')
     return
   }
 
@@ -446,7 +601,9 @@ async function handleCreateRunRequest(req: IncomingMessage, res: ServerResponse)
     return
   }
 
-  const upsert = await createQueuedRun({
+  await ensureProjectExists(projectId)
+
+  const upsert = await createProjectRun({
     id: randomUUID(),
     projectId,
     idempotencyKey,
@@ -463,50 +620,149 @@ async function handleCreateRunRequest(req: IncomingMessage, res: ServerResponse)
   }
 
   if (payload.stream === true) {
-    await streamRunEvents(req, upsert.run.id, res)
+    await streamRunEvents(req, projectId, upsert.run.id, res)
     return
   }
 
-  const body: CreateRunResponse = {
-    id: upsert.run.id,
-    status: upsert.run.status,
-    created: upsert.created,
+  writeApiSuccess(res, 200, toCreateRunResponse(upsert.run, upsert.created))
+}
+
+async function handleCreateProjectMessageRequest(req: IncomingMessage, res: ServerResponse) {
+  const projectId = parseProjectId(req)
+  if (!projectId) {
+    writeRouteError(res, 400, 'project id is required', 'invalid_argument')
+    return
   }
+
+  let payload: CreateProjectMessageRequest
+  try {
+    payload = await parseJsonBody<CreateProjectMessageRequest>(req)
+  } catch {
+    writeRouteError(res, 400, 'Invalid JSON payload', 'invalid_json')
+    return
+  }
+
+  const content = payload.content?.trim()
+  if (!content) {
+    writeRouteError(res, 400, 'content is required', 'invalid_argument')
+    return
+  }
+
+  const idempotencyKey = parseRequiredIdempotencyKey(req)
+  if (!idempotencyKey) {
+    writeRouteError(res, 400, 'Idempotency-Key header is required', 'invalid_argument')
+    return
+  }
+
+  const workspaceBackend =
+    parseWorkspaceBackend(payload.workspaceBackend) ?? resolveDefaultWorkspaceBackend()
+  if (payload.workspaceBackend && !parseWorkspaceBackend(payload.workspaceBackend)) {
+    writeRouteError(res, 400, 'workspaceBackend must be either host or e2b', 'invalid_argument')
+    return
+  }
+
+  await ensureProjectExists(projectId)
+
+  const previous = await getLatestWritableRun(projectId)
+  const prompt = buildPromptFromMessage({
+    content,
+    previous,
+  })
+
+  const upsert = await createProjectRun({
+    id: randomUUID(),
+    projectId,
+    idempotencyKey,
+    prompt,
+    input: payload.input,
+    provider: payload.provider,
+    model: payload.model,
+    workspaceBackend,
+    maxAttempts: undefined,
+    parentRunId: previous?.id ?? null,
+    message: {
+      role: 'user',
+      content,
+      input: payload.input,
+    },
+  })
+
+  if (upsert.created || upsert.run.status === 'queued') {
+    await enqueueRun(upsert.run.id)
+  }
+
+  if (payload.stream === true) {
+    await streamRunEvents(req, projectId, upsert.run.id, res)
+    return
+  }
+
+  const runMessages = await listProjectRunMessages(projectId, upsert.run.id, 200).catch(() => [])
+  const lastUserMessage = [...runMessages]
+    .reverse()
+    .find((message) => message.role === 'user' && message.content === content)
+  const messageCreatedAt = lastUserMessage?.createdAt ?? new Date().toISOString()
+
+  const body: CreateProjectMessageResponse = {
+    run: toCreateRunResponse(upsert.run, upsert.created),
+    message: {
+      role: 'user',
+      content,
+      createdAt: messageCreatedAt,
+    },
+  }
+
   writeApiSuccess(res, 200, body)
 }
 
 async function handleRunStreamRequest(req: IncomingMessage, res: ServerResponse) {
-  const id = parseRunId(req)
-  if (!id) {
+  const projectId = parseProjectId(req)
+  const runId = parseRunId(req)
+
+  if (!projectId) {
+    writeRouteError(res, 400, 'project id is required', 'invalid_argument')
+    return
+  }
+
+  if (!runId) {
     writeRouteError(res, 400, 'run id is required', 'invalid_argument')
     return
   }
 
-  const run = await getRun(id)
+  const run = await getRunInProject(projectId, runId)
   if (!run) {
     writeRouteError(res, 404, 'run not found', 'not_found')
     return
   }
 
-  await streamRunEvents(req, run.id, res)
+  await streamRunEvents(req, projectId, run.id, res)
 }
 
-async function getRunSummary(id: string): Promise<RunSummaryResponse> {
-  const run = await getRun(id)
+async function getRunSummary(projectId: string, id: string): Promise<RunSummaryResponse> {
+  const run = await getRunInProject(projectId, id)
   if (!run) throw APIError.notFound('run not found')
   return toSummary(run)
 }
 
-async function cancelRunById(id: string): Promise<CancelRunResponse> {
-  const run = await getRun(id)
+async function cancelRunById(projectId: string, id: string): Promise<CancelRunResponse> {
+  const run = await getRunInProject(projectId, id)
   if (!run) throw APIError.notFound('run not found')
 
+  if (!run.writable) {
+    return {
+      id,
+      projectId,
+      status: run.status,
+      cancelled: false,
+      writable: false,
+    }
+  }
+
   if (run.status === 'cancelled') {
-    return { id, status: 'cancelled', cancelled: false }
+    return { id, projectId, status: 'cancelled', cancelled: false, writable: true }
   }
 
   if (run.status === 'completed' || run.status === 'error') {
-    return { id, status: run.status, cancelled: false }
+    return { id, projectId, status: run.status, cancelled: false, writable: true }
   }
 
   await cancelRun(id)
@@ -517,7 +773,7 @@ async function cancelRunById(id: string): Promise<CancelRunResponse> {
     payload: { status: 'cancelled' },
   })
 
-  return { id, status: 'cancelled', cancelled: true }
+  return { id, projectId, status: 'cancelled', cancelled: true, writable: true }
 }
 
 function writeZipHeaders(res: ServerResponse, filename: string) {
@@ -605,19 +861,27 @@ async function writeHostWorkspaceZip(runId: string, res: ServerResponse) {
 async function handleRunDownloadZip(req: IncomingMessage, res: ServerResponse) {
   hydrateRunsEnvFromSecrets()
 
+  const projectId = parseProjectId(req)
   const id = parseRunId(req)
+
+  if (!projectId) {
+    writeRouteError(res, 400, 'project id is required', 'invalid_argument')
+    return
+  }
+
   if (!id) {
     writeRouteError(res, 400, 'run id is required', 'invalid_argument')
     return
   }
 
-  const run = await getRun(id)
+  const run = await getRunInProject(projectId, id)
   if (!run) {
     writeRouteError(res, 404, 'run not found', 'not_found')
     return
   }
 
   if (await tryWriteStoredWorkspaceArtifact(id, res)) return
+
   if (run.sandboxId && await tryWriteLiveSandboxZip(run.sandboxId, id, res)) return
 
   if (run.workspaceBackend === 'e2b') {
@@ -633,27 +897,90 @@ async function handleRunDownloadZip(req: IncomingMessage, res: ServerResponse) {
   await writeHostWorkspaceZip(id, res)
 }
 
-export const createRunV1 = api.raw(
-  { method: 'POST', path: '/v1/runs', expose: true, auth: true },
-  async (req, res) => handleCreateRunRequest(req, res),
+interface ProjectSummaryResponse {
+  id: string
+  name: string
+  latestRunId: string | null
+  createdAt: string
+  updatedAt: string
+}
+
+function toProjectSummary(project: ProjectRecord): ProjectSummaryResponse {
+  return {
+    id: project.id,
+    name: project.name,
+    latestRunId: project.latestRunId,
+    createdAt: project.createdAt,
+    updatedAt: project.updatedAt,
+  }
+}
+
+export const createProjectV1 = api.raw(
+  { method: 'POST', path: '/v1/projects', expose: true, auth: true },
+  async (req, res) => handleCreateProjectRequest(req, res),
 )
 
-export const runByIdV1 = api(
-  { method: 'GET', path: '/v1/runs/:id', expose: true, auth: true },
-  async ({ id }: RunPathRequest): Promise<ApiSuccess<RunSummaryResponse>> => apiSuccess(await getRunSummary(id)),
+export const listProjectsV1 = api(
+  { method: 'GET', path: '/v1/projects', expose: true, auth: true },
+  async ({ limit, offset }: ListProjectsRequest): Promise<ApiSuccess<ProjectSummaryResponse[]>> => {
+    const projects = await listProjects(Number(limit ?? 50), Number(offset ?? 0))
+    return apiSuccess(projects.map(toProjectSummary))
+  },
 )
 
-export const runStreamV1 = api.raw(
-  { method: 'GET', path: '/v1/runs/:id/stream', expose: true, auth: true },
+export const projectByIdV1 = api(
+  { method: 'GET', path: '/v1/projects/:projectId', expose: true, auth: true },
+  async ({ projectId }: ProjectPathRequest): Promise<ApiSuccess<ProjectSummaryResponse>> => {
+    const project = await getProject(projectId)
+    if (!project) throw APIError.notFound('project not found')
+    return apiSuccess(toProjectSummary(project))
+  },
+)
+
+export const createProjectRunV1 = api.raw(
+  { method: 'POST', path: '/v1/projects/:projectId/runs', expose: true, auth: true },
+  async (req, res) => handleCreateProjectRunRequest(req, res),
+)
+
+export const createProjectMessageV1 = api.raw(
+  { method: 'POST', path: '/v1/projects/:projectId/messages', expose: true, auth: true },
+  async (req, res) => handleCreateProjectMessageRequest(req, res),
+)
+
+export const projectRunsV1 = api(
+  { method: 'GET', path: '/v1/projects/:projectId/runs', expose: true, auth: true },
+  async ({ projectId, limit, offset }: ListProjectRunsRequest): Promise<ApiSuccess<RunSummaryResponse[]>> => {
+    await ensureProjectExists(projectId)
+    const runs = await listProjectRuns(projectId, Number(limit ?? 50), Number(offset ?? 0))
+    return apiSuccess(runs.map(toSummary))
+  },
+)
+
+export const projectRunByIdV1 = api(
+  { method: 'GET', path: '/v1/projects/:projectId/runs/:id', expose: true, auth: true },
+  async ({ projectId, id }: ProjectRunPathRequest): Promise<ApiSuccess<RunSummaryResponse>> => apiSuccess(await getRunSummary(projectId, id)),
+)
+
+export const projectRunMessagesV1 = api(
+  { method: 'GET', path: '/v1/projects/:projectId/runs/:id/messages', expose: true, auth: true },
+  async ({ projectId, id }: ProjectRunPathRequest): Promise<ApiSuccess<ProjectRunMessageResponse[]>> => {
+    const run = await getRunInProject(projectId, id)
+    if (!run) throw APIError.notFound('run not found')
+    return apiSuccess(await listProjectRunMessages(projectId, id, 200))
+  },
+)
+
+export const projectRunStreamV1 = api.raw(
+  { method: 'GET', path: '/v1/projects/:projectId/runs/:id/stream', expose: true, auth: true },
   async (req, res) => handleRunStreamRequest(req, res),
 )
 
-export const cancelRunEndpointV1 = api(
-  { method: 'POST', path: '/v1/runs/:id/cancel', expose: true, auth: true },
-  async ({ id }: RunPathRequest): Promise<ApiSuccess<CancelRunResponse>> => apiSuccess(await cancelRunById(id)),
+export const cancelProjectRunEndpointV1 = api(
+  { method: 'POST', path: '/v1/projects/:projectId/runs/:id/cancel', expose: true, auth: true },
+  async ({ projectId, id }: ProjectRunPathRequest): Promise<ApiSuccess<CancelRunResponse>> => apiSuccess(await cancelRunById(projectId, id)),
 )
 
-export const runDownloadZipV1 = api.raw(
-  { method: 'GET', path: '/v1/runs/:id/download.zip', expose: true, auth: true },
+export const projectRunDownloadZipV1 = api.raw(
+  { method: 'GET', path: '/v1/projects/:projectId/runs/:id/download.zip', expose: true, auth: true },
   async (req, res) => handleRunDownloadZip(req, res),
 )

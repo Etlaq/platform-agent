@@ -3,9 +3,20 @@ import { SQLDatabase } from 'encore.dev/storage/sqldb'
 export type RunStatus = 'queued' | 'running' | 'completed' | 'error' | 'cancelled'
 export type JobStatus = 'queued' | 'running' | 'succeeded' | 'failed' | 'cancelled'
 
+export interface ProjectRecord {
+  id: string
+  name: string
+  latestRunId: string | null
+  createdAt: string
+  updatedAt: string
+}
+
 export interface RunRecord {
   id: string
   projectId: string
+  runIndex: number
+  writable: boolean
+  parentRunId: string | null
   idempotencyKey: string | null
   status: RunStatus
   prompt: string
@@ -26,7 +37,7 @@ export interface RunRecord {
   maxAttempts: number
   sandboxId: string | null
   estimatedCostUsd: number | null
-  costCurrency: string | null
+  costCurrency: string
   pricingVersion: string | null
   startedAt: string | null
   completedAt: string | null
@@ -42,9 +53,30 @@ export interface EventRecord {
   ts: string
 }
 
+export interface ProjectRunMessageRecord {
+  id: number
+  projectId: string
+  runId: string
+  role: string
+  content: string
+  input: unknown | null
+  createdAt: string
+}
+
+interface ProjectRow {
+  id: string
+  name: string
+  latest_run_id: string | null
+  created_at: Date | string
+  updated_at: Date | string
+}
+
 interface RunRow {
   id: string
   project_id: string
+  run_index: number
+  writable: boolean
+  parent_run_id: string | null
   idempotency_key: string | null
   status: RunStatus
   prompt: string
@@ -65,7 +97,7 @@ interface RunRow {
   max_attempts: number
   sandbox_id: string | null
   estimated_cost_usd: number | string | null
-  cost_currency: string | null
+  cost_currency: string
   pricing_version: string | null
   started_at: Date | string | null
   completed_at: Date | string | null
@@ -79,6 +111,16 @@ interface EventRow {
   type: string
   payload: unknown
   ts: Date | string
+}
+
+interface RunMessageRow {
+  id: number
+  project_id: string
+  run_id: string
+  role: string
+  content: string
+  input: unknown | null
+  created_at: Date | string
 }
 
 interface JobRow {
@@ -135,6 +177,9 @@ function toRunRecord(row: RunRow): RunRecord {
   return {
     id: row.id,
     projectId: row.project_id,
+    runIndex: row.run_index ?? 0,
+    writable: Boolean(row.writable),
+    parentRunId: row.parent_run_id ?? null,
     idempotencyKey: row.idempotency_key ?? null,
     status: row.status,
     prompt: row.prompt,
@@ -155,10 +200,20 @@ function toRunRecord(row: RunRow): RunRecord {
     maxAttempts: row.max_attempts ?? 0,
     sandboxId: row.sandbox_id ?? null,
     estimatedCostUsd: toFiniteNumber(row.estimated_cost_usd),
-    costCurrency: row.cost_currency ?? null,
+    costCurrency: row.cost_currency ?? 'USD',
     pricingVersion: row.pricing_version ?? null,
     startedAt: toMaybeIsoString(row.started_at),
     completedAt: toMaybeIsoString(row.completed_at),
+    createdAt: toIsoString(row.created_at),
+    updatedAt: toIsoString(row.updated_at),
+  }
+}
+
+function toProjectRecord(row: ProjectRow): ProjectRecord {
+  return {
+    id: row.id,
+    name: row.name,
+    latestRunId: row.latest_run_id ?? null,
     createdAt: toIsoString(row.created_at),
     updatedAt: toIsoString(row.updated_at),
   }
@@ -171,6 +226,18 @@ function toEventRecord(row: EventRow): EventRecord {
     type: row.type,
     payload: row.payload ?? null,
     ts: toIsoString(row.ts),
+  }
+}
+
+function toRunMessageRecord(row: RunMessageRow): ProjectRunMessageRecord {
+  return {
+    id: row.id,
+    projectId: row.project_id,
+    runId: row.run_id,
+    role: row.role,
+    content: row.content,
+    input: row.input ?? null,
+    createdAt: toIsoString(row.created_at),
   }
 }
 
@@ -321,7 +388,137 @@ export async function getRunByProjectIdempotency(projectId: string, idempotencyK
   return toRunRecord(row)
 }
 
-export async function createQueuedRun(params: {
+export async function getProject(projectId: string) {
+  const row = await db.queryRow<ProjectRow>`
+    SELECT id, name, latest_run_id, created_at, updated_at
+    FROM projects
+    WHERE id = ${projectId}
+  `
+  if (!row) return null
+  return toProjectRecord(row)
+}
+
+export async function createProject(params: {
+  id: string
+  name?: string
+}) {
+  const normalizedName = params.name?.trim() || params.id
+  const inserted = await db.queryRow<ProjectRow>`
+    INSERT INTO projects (id, name)
+    VALUES (${params.id}, ${normalizedName})
+    ON CONFLICT (id)
+    DO NOTHING
+    RETURNING id, name, latest_run_id, created_at, updated_at
+  `
+
+  if (inserted) {
+    return {
+      project: toProjectRecord(inserted),
+      created: true,
+    }
+  }
+
+  const existing = await getProject(params.id)
+  if (!existing) {
+    throw new Error('project_upsert_failed')
+  }
+
+  return {
+    project: existing,
+    created: false,
+  }
+}
+
+export async function listProjects(limit = 50, offset = 0) {
+  const safeLimit = Math.max(1, Math.min(500, Math.trunc(limit)))
+  const safeOffset = Math.max(0, Math.trunc(offset))
+  const rows = await db.query<ProjectRow>`
+    SELECT id, name, latest_run_id, created_at, updated_at
+    FROM projects
+    ORDER BY updated_at DESC, created_at DESC
+    LIMIT ${safeLimit}
+    OFFSET ${safeOffset}
+  `
+
+  return (await collectRows(rows)).map(toProjectRecord)
+}
+
+export async function getRunInProject(projectId: string, runId: string) {
+  const row = await db.queryRow<RunRow>`
+    SELECT *
+    FROM runs
+    WHERE id = ${runId}
+      AND project_id = ${projectId}
+  `
+  if (!row) return null
+  return toRunRecord(row)
+}
+
+export async function listProjectRuns(projectId: string, limit = 50, offset = 0) {
+  const safeLimit = Math.max(1, Math.min(500, Math.trunc(limit)))
+  const safeOffset = Math.max(0, Math.trunc(offset))
+  const rows = await db.query<RunRow>`
+    SELECT *
+    FROM runs
+    WHERE project_id = ${projectId}
+    ORDER BY run_index DESC, created_at DESC
+    LIMIT ${safeLimit}
+    OFFSET ${safeOffset}
+  `
+  return (await collectRows(rows)).map(toRunRecord)
+}
+
+export async function getLatestWritableRun(projectId: string) {
+  const row = await db.queryRow<RunRow>`
+    SELECT *
+    FROM runs
+    WHERE project_id = ${projectId}
+      AND writable = TRUE
+    ORDER BY run_index DESC, created_at DESC
+    LIMIT 1
+  `
+  if (!row) return null
+  return toRunRecord(row)
+}
+
+export async function appendProjectRunMessage(params: {
+  projectId: string
+  runId: string
+  role: string
+  content: string
+  input?: unknown
+}) {
+  const row = await db.queryRow<RunMessageRow>`
+    INSERT INTO run_messages (project_id, run_id, role, content, input)
+    VALUES (
+      ${params.projectId},
+      ${params.runId},
+      ${params.role},
+      ${params.content},
+      ${params.input ?? null}::jsonb
+    )
+    RETURNING id, project_id, run_id, role, content, input, created_at
+  `
+  if (!row) {
+    throw new Error('run_message_insert_failed')
+  }
+  return toRunMessageRecord(row)
+}
+
+export async function listProjectRunMessages(projectId: string, runId: string, limit = 100) {
+  const safeLimit = Math.max(1, Math.min(500, Math.trunc(limit)))
+  const rows = await db.query<RunMessageRow>`
+    SELECT id, project_id, run_id, role, content, input, created_at
+    FROM run_messages
+    WHERE project_id = ${projectId}
+      AND run_id = ${runId}
+    ORDER BY id ASC
+    LIMIT ${safeLimit}
+  `
+  return (await collectRows(rows)).map(toRunMessageRecord)
+}
+
+export async function createProjectRun(params: {
   id: string
   projectId: string
   idempotencyKey: string
@@ -331,14 +528,74 @@ export async function createQueuedRun(params: {
   model?: string
   workspaceBackend?: 'host' | 'e2b'
   maxAttempts?: number
+  parentRunId?: string | null
+  message?: {
+    role: string
+    content: string
+    input?: unknown
+  }
 }) {
   const maxAttempts = params.maxAttempts ?? resolveMaxJobAttempts()
   const tx = await db.begin()
   try {
+    const project = await tx.queryRow<ProjectRow>`
+      SELECT id, name, latest_run_id, created_at, updated_at
+      FROM projects
+      WHERE id = ${params.projectId}
+      FOR UPDATE
+    `
+    if (!project) {
+      throw new Error('project_not_found')
+    }
+
+    const existingByIdempotency = await tx.queryRow<RunRow>`
+      SELECT *
+      FROM runs
+      WHERE project_id = ${params.projectId}
+        AND idempotency_key = ${params.idempotencyKey}
+    `
+    if (existingByIdempotency) {
+      await tx.commit()
+      return {
+        run: toRunRecord(existingByIdempotency),
+        created: false,
+      }
+    }
+
+    const existingWritable = await tx.queryRow<RunRow>`
+      SELECT *
+      FROM runs
+      WHERE project_id = ${params.projectId}
+        AND writable = TRUE
+      ORDER BY run_index DESC, created_at DESC
+      LIMIT 1
+      FOR UPDATE
+    `
+
+    const runIndexRow = await tx.queryRow<{ next_index: number }>`
+      SELECT COALESCE(MAX(run_index), 0) + 1 as next_index
+      FROM runs
+      WHERE project_id = ${params.projectId}
+    `
+    const nextRunIndex = runIndexRow?.next_index ?? 1
+    const parentRunId = params.parentRunId ?? existingWritable?.id ?? null
+
+    if (existingWritable) {
+      await tx.exec`
+        UPDATE runs
+        SET writable = FALSE,
+            updated_at = NOW()
+        WHERE id = ${existingWritable.id}
+      `
+    }
+
     const inserted = await tx.queryRow<RunRow>`
       INSERT INTO runs (
         id,
         project_id,
+        run_index,
+        writable,
+        parent_run_id,
         idempotency_key,
         status,
         prompt,
@@ -352,6 +609,9 @@ export async function createQueuedRun(params: {
       VALUES (
         ${params.id},
         ${params.projectId},
+        ${nextRunIndex},
+        TRUE,
+        ${parentRunId},
         ${params.idempotencyKey},
         'queued',
         ${params.prompt},
@@ -369,22 +629,7 @@ export async function createQueuedRun(params: {
     `
 
     if (!inserted) {
-      const existing = await tx.queryRow<RunRow>`
-        SELECT *
-        FROM runs
-        WHERE project_id = ${params.projectId}
-          AND idempotency_key = ${params.idempotencyKey}
-      `
-      await tx.commit()
-
-      if (!existing) {
-        throw new Error('idempotency_conflict_without_existing_run')
-      }
-
-      return {
-        run: toRunRecord(existing),
-        created: false,
-      }
+      throw new Error('run_insert_failed')
     }
 
     await tx.exec`
@@ -403,6 +648,26 @@ export async function createQueuedRun(params: {
         next_run_at = NOW(),
         updated_at = NOW()
     `
+
+    await tx.exec`
+      UPDATE projects
+      SET latest_run_id = ${inserted.id},
+          updated_at = NOW()
+      WHERE id = ${params.projectId}
+    `
+
+    if (params.message?.content) {
+      await tx.exec`
+        INSERT INTO run_messages (project_id, run_id, role, content, input)
+        VALUES (
+          ${params.projectId},
+          ${inserted.id},
+          ${params.message.role},
+          ${params.message.content},
+          ${params.message.input ?? null}::jsonb
+        )
+      `
+    }
 
     await tx.commit()
 
@@ -425,6 +690,23 @@ export async function createQueuedRun(params: {
 
     throw error
   }
+}
+
+export async function createQueuedRun(params: {
+  id: string
+  projectId: string
+  idempotencyKey: string
+  prompt: string
+  input?: unknown
+  provider?: string
+  model?: string
+  workspaceBackend?: 'host' | 'e2b'
+  maxAttempts?: number
+}) {
+  await createProject({ id: params.projectId, name: params.projectId })
+  return createProjectRun({
+    ...params,
+  })
 }
 
 export async function listRuns(limit = 50, offset = 0) {

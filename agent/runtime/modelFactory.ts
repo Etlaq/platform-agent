@@ -1,5 +1,9 @@
 import { ChatOpenAI } from '@langchain/openai'
 import { ChatAnthropic } from '@langchain/anthropic'
+import { ChatGoogleGenerativeAI } from '@langchain/google-genai'
+import { ChatGroq } from '@langchain/groq'
+import { ChatMistralAI } from '@langchain/mistralai'
+import { ChatCohere } from '@langchain/cohere'
 import type { BaseChatModel } from '@langchain/core/language_models/chat_models'
 import type { ModelProvider } from '../provider'
 import { Agent as UndiciAgent } from 'undici'
@@ -51,11 +55,11 @@ export function createModel(provider: ModelProvider, model: string): BaseChatMod
 
   const normalizedModel = normalizeModelName(provider, model)
 
-  if (provider === 'openai' || provider === 'xai') {
-    const baseURL = process.env.OPENAI_BASE_URL || process.env.OPENAI_API_BASE
-    const xaiBase = process.env.XAI_BASE_URL || 'https://api.x.ai/v1'
-    const effectiveBaseURL = provider === 'xai' ? baseURL || xaiBase : baseURL
-    const apiKey = provider === 'xai' ? process.env.XAI_API_KEY : undefined
+  function createOpenAICompatible(params: {
+    apiKey?: string
+    baseURL?: string
+    defaultHeaders?: Record<string, string>
+  }) {
     return new ChatOpenAI({
       model: normalizedModel,
       temperature: 0,
@@ -63,10 +67,81 @@ export function createModel(provider: ModelProvider, model: string): BaseChatMod
       streamUsage: true,
       timeout: Number.isFinite(timeoutMs) ? timeoutMs : undefined,
       maxRetries: Number.isFinite(maxRetries) ? maxRetries : undefined,
-      apiKey,
-      configuration: effectiveBaseURL
-        ? { baseURL: effectiveBaseURL, fetch: fetchWithUndiciTimeouts }
+      apiKey: params.apiKey,
+      configuration: params.baseURL || params.defaultHeaders
+        ? {
+          ...(params.baseURL ? { baseURL: params.baseURL } : {}),
+          ...(params.defaultHeaders ? { defaultHeaders: params.defaultHeaders } : {}),
+          fetch: fetchWithUndiciTimeouts,
+        }
         : { fetch: fetchWithUndiciTimeouts },
+    })
+  }
+
+  if (provider === 'openai' || provider === 'xai' || provider === 'openrouter' || provider === 'kimi' || provider === 'qwen') {
+    const baseURL = process.env.OPENAI_BASE_URL || process.env.OPENAI_API_BASE
+
+    if (provider === 'openai') {
+      return createOpenAICompatible({
+        baseURL,
+      })
+    }
+
+    if (provider === 'xai') {
+      const xaiBase = process.env.XAI_BASE_URL || 'https://api.x.ai/v1'
+      return createOpenAICompatible({
+        apiKey: process.env.XAI_API_KEY,
+        baseURL: baseURL || xaiBase,
+      })
+    }
+
+    if (provider === 'openrouter') {
+      const apiKey = process.env.OPENROUTER_API_KEY
+      if (!apiKey) {
+        throw new Error('OPENROUTER_API_KEY is required when AGENT_PROVIDER=openrouter (or provider=openrouter).')
+      }
+      const openrouterBase = (process.env.OPENROUTER_BASE_URL || 'https://openrouter.ai/api/v1').replace(/\/+$/, '')
+      const referer = process.env.OPENROUTER_SITE_URL || process.env.OPENROUTER_HTTP_REFERER
+      const title = process.env.OPENROUTER_APP_NAME || process.env.OPENROUTER_X_TITLE
+      return createOpenAICompatible({
+        apiKey,
+        baseURL: openrouterBase,
+        defaultHeaders: {
+          ...(referer ? { 'HTTP-Referer': referer } : {}),
+          ...(title ? { 'X-Title': title } : {}),
+        },
+      })
+    }
+
+    if (provider === 'kimi') {
+      const apiKey = process.env.KIMI_API_KEY || process.env.MOONSHOT_API_KEY
+      if (!apiKey) {
+        throw new Error('KIMI_API_KEY or MOONSHOT_API_KEY is required when AGENT_PROVIDER=kimi (or provider=kimi).')
+      }
+      const kimiBase = (
+        process.env.KIMI_BASE_URL ||
+        process.env.MOONSHOT_BASE_URL ||
+        'https://api.moonshot.ai/v1'
+      ).replace(/\/+$/, '')
+      return createOpenAICompatible({
+        apiKey,
+        baseURL: kimiBase,
+      })
+    }
+
+    const apiKey = process.env.QWEN_API_KEY || process.env.ALIBABA_API_KEY || process.env.DASHSCOPE_API_KEY
+    if (!apiKey) {
+      throw new Error('QWEN_API_KEY / ALIBABA_API_KEY / DASHSCOPE_API_KEY is required when AGENT_PROVIDER=qwen (or provider=qwen).')
+    }
+    const qwenBase = (
+      process.env.QWEN_BASE_URL ||
+      process.env.ALIBABA_BASE_URL ||
+      process.env.DASHSCOPE_BASE_URL ||
+      'https://dashscope-intl.aliyuncs.com/compatible-mode/v1'
+    ).replace(/\/+$/, '')
+    return createOpenAICompatible({
+      apiKey,
+      baseURL: qwenBase,
     })
   }
 
@@ -91,6 +166,58 @@ export function createModel(provider: ModelProvider, model: string): BaseChatMod
       maxRetries: Number.isFinite(maxRetries) ? maxRetries : undefined,
       apiKey,
       configuration: { baseURL, fetch: fetchWithUndiciTimeouts },
+      // GLM-5 requires tool_stream for real-time streaming of tool call parameters.
+      // Without it tool calls block until the full response is assembled.
+      modelKwargs: { tool_stream: true },
+    })
+  }
+
+  if (provider === 'google') {
+    return new ChatGoogleGenerativeAI({
+      model: normalizedModel,
+      temperature: 0,
+      streaming: true,
+      streamUsage: true,
+      maxRetries: Number.isFinite(maxRetries) ? maxRetries : undefined,
+      apiKey: process.env.GOOGLE_API_KEY,
+      ...(process.env.GOOGLE_BASE_URL ? { baseUrl: process.env.GOOGLE_BASE_URL } : {}),
+    })
+  }
+
+  if (provider === 'groq') {
+    return new ChatGroq({
+      model: normalizedModel,
+      temperature: 0,
+      streaming: true,
+      streamUsage: true,
+      maxRetries: Number.isFinite(maxRetries) ? maxRetries : undefined,
+      timeout: Number.isFinite(timeoutMs) ? timeoutMs : undefined,
+      apiKey: process.env.GROQ_API_KEY,
+      ...(process.env.GROQ_BASE_URL ? { baseUrl: process.env.GROQ_BASE_URL } : {}),
+      fetch: fetchWithUndiciTimeouts,
+    })
+  }
+
+  if (provider === 'mistral') {
+    return new ChatMistralAI({
+      model: normalizedModel,
+      temperature: 0,
+      streaming: true,
+      streamUsage: true,
+      maxRetries: Number.isFinite(maxRetries) ? maxRetries : undefined,
+      apiKey: process.env.MISTRAL_API_KEY,
+      ...(process.env.MISTRAL_BASE_URL ? { serverURL: process.env.MISTRAL_BASE_URL } : {}),
+    })
+  }
+
+  if (provider === 'cohere') {
+    return new ChatCohere({
+      model: normalizedModel,
+      temperature: 0,
+      streaming: true,
+      streamUsage: true,
+      maxRetries: Number.isFinite(maxRetries) ? maxRetries : undefined,
+      apiKey: process.env.COHERE_API_KEY,
     })
   }
 

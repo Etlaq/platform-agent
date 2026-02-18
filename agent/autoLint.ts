@@ -6,21 +6,9 @@ export interface SandboxCmdResult {
   error?: string
 }
 
-const BUILD_PATTERNS = [
-  /\bbun\s+run\s+build\b/i,
-  /\bnpm\s+run\s+build\b/i,
-  /\bpnpm\s+run\s+build\b/i,
-  /\bbunx\s+next\s+build\b/i,
-  /\bnpx\s+next\s+build\b/i,
-  /\bnext\s+build\b/i,
-]
+const BUILD_PATTERN = /\bbun\s+run\s+build\b/i
 
-const LINT_PATTERNS = [
-  /\bbun\s+run\s+lint\b/i,
-  /\bnpm\s+run\s+lint\b/i,
-  /\bpnpm\s+run\s+lint\b/i,
-  /\beslint\b/i,
-]
+const LINT_PATTERN = /\bbun\s+run\s+lint\b/i
 
 export function extractSandboxCmd(input: string): string | null {
   try {
@@ -33,11 +21,11 @@ export function extractSandboxCmd(input: string): string | null {
 }
 
 export function isBuildCommand(cmd: string) {
-  return BUILD_PATTERNS.some((pattern) => pattern.test(cmd))
+  return BUILD_PATTERN.test(cmd)
 }
 
 export function isLintCommand(cmd: string) {
-  return LINT_PATTERNS.some((pattern) => pattern.test(cmd))
+  return LINT_PATTERN.test(cmd)
 }
 
 export function isSuccessfulSandboxResult(out: unknown) {

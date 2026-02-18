@@ -21,6 +21,7 @@ import {
 import { isRunAbortedError, runAgent, RunAbortedError } from '../agent/runAgent'
 import { commitRunToGit } from './gitCommit'
 import { connectSandboxWithRetry, closeSandboxWithRetry } from '../common/e2bSandbox'
+import { resolveSandboxAppDir } from '../common/e2b'
 import { buildSandboxZipBuffer } from '../common/sandboxZip'
 
 interface RunRequestedEvent {
@@ -78,20 +79,8 @@ function parsePositiveInt(name: string, fallback: number, opts?: { min?: number;
 }
 
 const MAX_BACKOFF_SECONDS = parsePositiveInt('WORKER_MAX_BACKOFF', 30, { min: 1, max: 600 })
-const RUN_ATTEMPT_TIMEOUT_MS = parsePositiveInt('RUN_ATTEMPT_TIMEOUT_MS', 20 * 60_000, {
-  min: 30_000,
-  max: 24 * 60 * 60_000,
-})
-
 function sleep(ms: number) {
   return new Promise<void>((resolve) => setTimeout(resolve, ms))
-}
-
-class RunAttemptTimedOutError extends Error {
-  constructor(timeoutMs: number) {
-    super(`run attempt timed out after ${timeoutMs}ms`)
-    this.name = 'RunAttemptTimedOutError'
-  }
 }
 
 export const runRequestedTopic = new Topic<RunRequestedEvent>('run-requested', {
@@ -154,7 +143,7 @@ async function persistSandboxWorkspaceArtifact(runId: string, sandboxId: string 
   try {
     const { putBinaryObject } = await import('../storage/storage')
     const sb = await connectSandboxWithRetry(sandboxId)
-    const appDir = process.env.SANDBOX_APP_DIR || '/home/user'
+    const appDir = resolveSandboxAppDir()
     const { buffer, fileCount } = await buildSandboxZipBuffer(sb, appDir)
     const key = `runs/${runId}/workspace.zip`
     await putBinaryObject(key, buffer, 'application/zip')
@@ -210,8 +199,9 @@ async function processRun(runId: string) {
     }
   }
 
-  let attempts = (await getJobByRunId(runId))?.attempts ?? 0
-  const maxAttempts = (await getJobByRunId(runId))?.maxAttempts ?? 3
+  const job = await getJobByRunId(runId)
+  let attempts = job?.attempts ?? 0
+  const maxAttempts = job?.maxAttempts ?? 3
 
   // Keep retry logic inside the handler to preserve deterministic event order.
   while (attempts < maxAttempts) {
@@ -244,7 +234,6 @@ async function processRun(runId: string) {
 
     const abortController = new AbortController()
     let cancelWatch: ReturnType<typeof setInterval> | null = null
-    let attemptTimeoutHandle: ReturnType<typeof setTimeout> | null = null
     let cancelCheckInFlight = false
     let eventChain = Promise.resolve()
     let attemptSandboxId: string | null = latestRun.sandboxId ?? null
@@ -291,13 +280,6 @@ async function processRun(runId: string) {
         )
       })
 
-      const attemptTimeoutPromise = new Promise<never>((_resolve, reject) => {
-        attemptTimeoutHandle = setTimeout(() => {
-          reject(new RunAttemptTimedOutError(RUN_ATTEMPT_TIMEOUT_MS))
-          abortController.abort()
-        }, RUN_ATTEMPT_TIMEOUT_MS)
-      })
-
       const result = await Promise.race([
         runAgent({
           prompt: latestRun.prompt,
@@ -311,6 +293,10 @@ async function processRun(runId: string) {
             if (abortController.signal.aborted) return
             if (event.type === 'token') {
               queueEmit('token', event.payload)
+              return
+            }
+            if (event.type === 'file_op') {
+              queueEmit('file_op', event.payload)
               return
             }
             if (event.type === 'tool') {
@@ -337,7 +323,6 @@ async function processRun(runId: string) {
           },
         }),
         abortPromise,
-        attemptTimeoutPromise,
       ])
       if (result.sandboxId && result.sandboxId !== attemptSandboxId) {
         attemptSandboxId = result.sandboxId
@@ -345,11 +330,6 @@ async function processRun(runId: string) {
           console.error('queue: failed to persist run sandbox id', error)
         })
       }
-      if (attemptTimeoutHandle) {
-        clearTimeout(attemptTimeoutHandle)
-        attemptTimeoutHandle = null
-      }
-
       await eventChain
 
       const runAfterModel = await getRun(runId)
@@ -430,18 +410,12 @@ async function processRun(runId: string) {
 
       return
     } catch (error) {
-      if (attemptTimeoutHandle) {
-        clearTimeout(attemptTimeoutHandle)
-        attemptTimeoutHandle = null
-      }
       const message = error instanceof Error ? error.message : String(error)
       await eventChain
 
       const runAfterError = await getRun(runId)
       const cancelled =
-        !(
-          error instanceof RunAttemptTimedOutError
-        ) && (abortController.signal.aborted || runAfterError?.status === 'cancelled' || isRunAbortedError(error))
+        abortController.signal.aborted || runAfterError?.status === 'cancelled' || isRunAbortedError(error)
 
       if (cancelled) {
         await cancelJobByRunId(runId)
@@ -497,7 +471,6 @@ async function processRun(runId: string) {
       continue
     } finally {
       if (cancelWatch) clearInterval(cancelWatch)
-      if (attemptTimeoutHandle) clearTimeout(attemptTimeoutHandle)
       await closeSandboxIfPresent(attemptSandboxId)
       if (attemptSandboxId) {
         await setRunSandboxId(runId, null).catch((error) => {

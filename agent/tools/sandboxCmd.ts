@@ -2,6 +2,7 @@ import { tool } from 'langchain'
 import { z } from 'zod'
 import type { Sandbox } from '@e2b/code-interpreter'
 import { runSandboxCommandWithTimeout } from '../../common/e2bSandbox'
+import { isBuildCommand } from '../autoLint'
 
 const sandboxCmdSchema = z.object({
   cmd: z.string().min(1),
@@ -12,6 +13,7 @@ const sandboxCmdSchema = z.object({
 
 const ALLOWED_BINARIES = new Set(['bun', 'bunx', 'mkdir', 'rm'])
 const SHELL_META_PATTERN = /[;&|`$><(){}\n\r]/
+const LEGACY_APP_ROOT = '/app'
 
 function getBinary(cmd: string) {
   const trimmed = cmd.trim()
@@ -60,8 +62,34 @@ function isAllowedCommand(cmd: string) {
   return ALLOWED_BINARIES.has(binary)
 }
 
-function isBuildCommand(cmd: string) {
-  return /^bun\s+run\s+build(?:\s|$)/.test(cmd.trim())
+function normalizePathToken(token: string, workspaceRoot: string) {
+  if (!token.startsWith('/')) return token
+  if (token === workspaceRoot || token.startsWith(`${workspaceRoot}/`)) return token
+  if (token === LEGACY_APP_ROOT) return workspaceRoot
+  if (token.startsWith(`${LEGACY_APP_ROOT}/`)) {
+    return `${workspaceRoot}${token.slice(LEGACY_APP_ROOT.length)}`
+  }
+  if (token === '/') return workspaceRoot
+  // In DeepAgents virtual FS, absolute paths are rooted at project "/".
+  // Map them into the sandbox workspace root so sandbox_cmd stays consistent.
+  return `${workspaceRoot}${token}`
+}
+
+function normalizeLegacyAppPath(value: string, defaultCwd: string) {
+  if (!value) return value
+  const fallback = defaultCwd.trim().replace(/\/+$/, '')
+  if (!fallback) return value
+
+  return value
+    .trim()
+    .split(/\s+/)
+    .map((token) => normalizePathToken(token, fallback))
+    .join(' ')
+}
+
+function normalizeCwd(cwd: string, defaultCwd: string) {
+  const normalized = normalizeLegacyAppPath(cwd, defaultCwd)
+  return normalized || defaultCwd
 }
 
 function isTimeoutError(err: unknown) {
@@ -89,6 +117,8 @@ async function cleanupStaleNextBuild(params: { sandbox: Sandbox; cwd: string }) 
 export function createSandboxCmdTool(params: {
   sandbox: Sandbox
   defaultCwd: string
+  onStdout?: (event: { cmd: string; cwd: string; chunk: string }) => void | Promise<void>
+  onStderr?: (event: { cmd: string; cwd: string; chunk: string }) => void | Promise<void>
 }) {
   return tool(
     async (input) => {
@@ -97,7 +127,8 @@ export function createSandboxCmdTool(params: {
         return { ok: false, error: 'Invalid input.', issues: parsed.error.issues }
       }
 
-      if (!isAllowedCommand(parsed.data.cmd)) {
+      const normalizedCmd = normalizeLegacyAppPath(parsed.data.cmd, params.defaultCwd)
+      if (!isAllowedCommand(normalizedCmd)) {
         return {
           ok: false,
           error:
@@ -107,29 +138,32 @@ export function createSandboxCmdTool(params: {
         }
       }
 
-      const binary = getBinary(parsed.data.cmd)
-      if (binary === 'rm' && targetsGitDir(parsed.data.cmd)) {
+      const binary = getBinary(normalizedCmd)
+      if (binary === 'rm' && targetsGitDir(normalizedCmd)) {
         return {
           ok: false,
           error: "Command denied by policy. Do not use rm on the '.git' directory.",
         }
       }
 
-      const cwd = parsed.data.cwd ?? params.defaultCwd
-      const buildCmd = isBuildCommand(parsed.data.cmd)
+      const cwd = normalizeCwd(parsed.data.cwd ?? params.defaultCwd, params.defaultCwd)
+      const buildCmd = isBuildCommand(normalizedCmd)
       if (buildCmd) {
         await cleanupStaleNextBuild({ sandbox: params.sandbox, cwd })
       }
 
       try {
-        const res = await runSandboxCommandWithTimeout(params.sandbox, parsed.data.cmd, {
+        const res = await runSandboxCommandWithTimeout(params.sandbox, normalizedCmd, {
           cwd,
           envs: parsed.data.envs,
           timeoutMs: parsed.data.timeoutMs,
+          onStdout: (data) => params.onStdout?.({ cmd: normalizedCmd, cwd, chunk: data }),
+          onStderr: (data) => params.onStderr?.({ cmd: normalizedCmd, cwd, chunk: data }),
         })
 
         return {
           ok: true,
+          executedCmd: normalizedCmd,
           exitCode: (res as any).exitCode ?? 0,
           stdout: (res as any).stdout ?? '',
           stderr: (res as any).stderr ?? '',
@@ -142,13 +176,14 @@ export function createSandboxCmdTool(params: {
         if (result && typeof result.exitCode === 'number') {
           return {
             ok: false,
+            executedCmd: normalizedCmd,
             exitCode: result.exitCode,
             stdout: result.stdout ?? '',
             stderr: result.stderr ?? '',
             error: result.error ?? (err instanceof Error ? err.message : String(err)),
           }
         }
-        return { ok: false, error: err instanceof Error ? err.message : String(err) }
+        return { ok: false, executedCmd: normalizedCmd, error: err instanceof Error ? err.message : String(err) }
       }
     },
     {

@@ -142,6 +142,8 @@ export async function runSandboxCommandWithTimeout(
     cwd?: string
     envs?: Record<string, string>
     timeoutMs?: number
+    onStdout?: (data: string) => void | Promise<void>
+    onStderr?: (data: string) => void | Promise<void>
   },
 ): Promise<unknown> {
   const softTimeoutMs = opts?.timeoutMs ?? resolveE2BCommandDefaultTimeoutMs()
@@ -164,6 +166,8 @@ export async function runSandboxCommandWithTimeout(
         cwd: opts?.cwd,
         envs: opts?.envs,
         timeoutMs: softTimeoutMs,
+        onStdout: opts?.onStdout,
+        onStderr: opts?.onStderr,
       } as any),
       hardTimeout,
     ])
